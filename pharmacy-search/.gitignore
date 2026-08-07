@@ -1,4 +1,6 @@
 backend/index/
 backend/logs/
+backend/learning/candidate_pairs.json
+backend/learning/approved_pairs.json
 __pycache__/
 *.pyc

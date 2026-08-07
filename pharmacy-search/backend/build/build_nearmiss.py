@@ -181,11 +181,16 @@ def all_variants(word: str):
 RULE_GROUPS = ["delete", "transpose", "keyboard", "phonetic", "pharma-suffix", "inn-hdrop", "trailing-e", "diacritics", "spacing"]
 
 
-def build_table(keywords: dict, excluded_rules=frozenset()) -> dict:
+def build_table(keywords: dict, excluded_rules=frozenset(), learned_pairs=()) -> dict:
     """Pure table-building logic, reusable by both the production build and
     eval/held_out.py (which builds a second table with some rule groups
     excluded, to measure whether the corrector generalizes beyond rules it
-    was directly given)."""
+    was directly given).
+
+    learned_pairs are pharmacist-approved (variant -> keyword) mappings mined
+    from real query logs (see learning/). They go through the exact same
+    ambiguity computation as every generated rule - an approved pair that
+    collides with something else still won't auto-correct silently."""
     table = defaultdict(list)
     for keyword in keywords:
         word = normalize(keyword)
@@ -197,6 +202,13 @@ def build_table(keywords: dict, excluded_rules=frozenset()) -> dict:
                 continue
             table[variant].append({"keyword": keyword, "weight": WEIGHTS.get(rule, 0.6), "rule": rule})
 
+    for pair in learned_pairs:
+        variant = normalize(pair.get("from_query", ""))
+        keyword = normalize(pair.get("to_query", ""))
+        if not variant or not keyword or keyword not in keywords:
+            continue
+        table[variant].append({"keyword": keyword, "weight": 1.0, "rule": "learned"})
+
     out = {}
     for variant, items in table.items():
         if variant in keywords:
@@ -205,10 +217,17 @@ def build_table(keywords: dict, excluded_rules=frozenset()) -> dict:
     return out
 
 
+def load_approved_pairs():
+    path = BASE_DIR / "learning" / "approved_pairs.json"
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def build_nearmiss():
     with KEYWORDS_PATH.open("r", encoding="utf-8") as handle:
         keywords = json.load(handle)
-    out = build_table(keywords)
+    out = build_table(keywords, learned_pairs=load_approved_pairs())
     with OUT_PATH.open("w", encoding="utf-8") as handle:
         json.dump(out, handle, ensure_ascii=False, indent=2)
     return out

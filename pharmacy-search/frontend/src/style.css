@@ -249,7 +249,11 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
   align-items: center;
   gap: 12px;
   font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
 }
+.product-card:hover { border-color: var(--brand); }
+.product-card-clicked { background: var(--brand-tint); border-color: var(--brand); }
 .product-name { line-height: 1.4; }
 .product-category {
   flex-shrink: 0;

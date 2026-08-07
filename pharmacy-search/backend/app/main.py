@@ -13,20 +13,16 @@ corrector = Corrector(
     BASE_DIR / "data" / "products.jsonl",
 )
 
-LOG_PATH = BASE_DIR / "logs" / "queries.jsonl"
-LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+LOG_DIR = BASE_DIR / "logs"
+QUERY_LOG_PATH = LOG_DIR / "queries.jsonl"
+CLICK_LOG_PATH = LOG_DIR / "clicks.jsonl"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Pharmacy Search")
 
 
-def _log_query(result: dict) -> None:
-    entry = {
-        "ts": time.time(),
-        "query": result.get("query"),
-        "decision": result.get("decision"),
-        "latency_ms": result.get("latency_ms"),
-    }
-    with LOG_PATH.open("a", encoding="utf-8") as handle:
+def _append_log(path: Path, entry: dict) -> None:
+    with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
@@ -36,7 +32,7 @@ def health():
 
 
 @app.get("/api/search")
-def search(q: str = "", literal: bool = False):
+def search(q: str = "", literal: bool = False, session_id: str = ""):
     result = corrector.correct(q)
     auto_corrected = not literal and result.get("decision") == "auto_correct"
     effective_query = result.get("suggestion") if auto_corrected else q
@@ -44,10 +40,28 @@ def search(q: str = "", literal: bool = False):
     if literal:
         result["decision"] = "no_change"
     if q:
-        _log_query(result)
+        _append_log(QUERY_LOG_PATH, {
+            "ts": time.time(),
+            "session_id": session_id,
+            "query": q,
+            "decision": result.get("decision"),
+            "result_count": len(result["products"]),
+            "latency_ms": result.get("latency_ms"),
+        })
     return result
 
 
 @app.get("/api/suggest")
 def suggest(q: str = ""):
     return {"query": q, "suggestions": corrector.suggest(q)}
+
+
+@app.post("/api/click")
+def click(session_id: str, query: str, product: str = ""):
+    _append_log(CLICK_LOG_PATH, {
+        "ts": time.time(),
+        "session_id": session_id,
+        "query": query,
+        "product": product,
+    })
+    return {"status": "logged"}

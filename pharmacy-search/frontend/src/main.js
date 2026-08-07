@@ -1,5 +1,5 @@
 import './style.css';
-import { search, suggest } from './api.js';
+import { search, suggest, logClick } from './api.js';
 
 const PRESETS = [
   { label: 'etrogen', hint: 'typo → auto-correct' },
@@ -118,7 +118,7 @@ function renderResults(result) {
   }
   results.innerHTML = `<ul class="products">${products
     .map(
-      (p) => `<li class="product-card">
+      (p) => `<li class="product-card" data-query="${escapeHtml(result.query)}" data-product="${escapeHtml(p.webName)}" tabindex="0" role="button">
         <span class="product-name">${escapeHtml(p.webName)}</span>
         ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
       </li>`
@@ -200,6 +200,13 @@ queryInput.addEventListener('focus', () => {
 document.addEventListener('click', (event) => {
   if (!searchCard.contains(event.target)) {
     autocomplete.hidden = true;
+  }
+
+  const productCard = event.target.closest('.product-card');
+  if (productCard) {
+    logClick(productCard.dataset.query, productCard.dataset.product);
+    productCard.classList.add('product-card-clicked');
+    return;
   }
 
   const target = event.target.closest('button');
