@@ -122,11 +122,26 @@ export function listOrders() {
   return apiFetch('/api/auth/orders', { auth: true });
 }
 
-export function listProducts({ q = '', category = '', page = 1, pageSize = 20 } = {}) {
-  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+export function listProducts({
+  q = '', category = '', brand = '', minPrice, maxPrice, minRating, inStock = false,
+  sort = 'name', page = 1, pageSize = 20,
+} = {}) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), sort });
   if (q) params.set('q', q);
   if (category) params.set('category', category);
+  if (brand) params.set('brand', brand);
+  if (minPrice !== undefined && minPrice !== '') params.set('min_price', String(minPrice));
+  if (maxPrice !== undefined && maxPrice !== '') params.set('max_price', String(maxPrice));
+  if (minRating !== undefined && minRating !== '') params.set('min_rating', String(minRating));
+  if (inStock) params.set('in_stock', 'true');
   return apiFetch(`/api/products?${params.toString()}`);
+}
+
+export function getFacets({ q = '', category = '' } = {}) {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (category) params.set('category', category);
+  return apiFetch(`/api/products/facets?${params.toString()}`);
 }
 
 export function getProduct(id) {

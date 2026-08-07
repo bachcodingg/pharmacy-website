@@ -31,6 +31,13 @@ if _needs_migration:
 
     _migrate_products()
 
+# Recomputed on every startup so "best-selling" reflects recent clicks. Cheap
+# at this project's scale; a real deployment would run this on a schedule
+# instead of on every process start.
+from build.aggregate_clicks import aggregate as _aggregate_clicks  # noqa: E402
+
+_aggregate_clicks()
+
 app = FastAPI(title="Pharmacy Search")
 app.include_router(auth.router)
 app.include_router(catalog.router)

@@ -9,8 +9,17 @@ from app.db import get_connection, row_to_dict
 
 router = APIRouter(prefix="/api/products", tags=["catalog"])
 
+SORT_OPTIONS = {
+    "name": "p.web_name ASC",
+    "price_asc": "p.price ASC",
+    "price_desc": "p.price DESC",
+    "newest": "p.id DESC",
+    "top_rated": "(rating.avg_rating IS NULL), rating.avg_rating DESC, rating.rating_count DESC",
+    "best_selling": "COALESCE(clicks.count, 0) DESC, rating.rating_count DESC",
+}
 
-def _serialize_product(row: dict, rating_avg, rating_count: int) -> dict:
+
+def _serialize_product(row: dict) -> dict:
     return {
         "id": row["id"],
         "sku": row["sku"],
@@ -28,54 +37,116 @@ def _serialize_product(row: dict, rating_avg, rating_count: int) -> dict:
         "price_is_estimated": bool(row["price_is_estimated"]),
         "stock": row["stock"],
         "stock_is_estimated": bool(row["stock_is_estimated"]),
-        "rating_avg": round(rating_avg, 2) if rating_avg is not None else None,
-        "rating_count": rating_count,
+        "rating_avg": round(row["rating_avg"], 2) if row["rating_avg"] is not None else None,
+        "rating_count": row["rating_count"] or 0,
     }
 
 
-@router.get("")
-def list_products(q: str = "", category: str = "", page: int = 1, page_size: int = 20):
-    page = max(page, 1)
-    page_size = min(max(page_size, 1), 100)
-    offset = (page - 1) * page_size
-
+def _build_filters(q, category, brand, min_price, max_price, min_rating, in_stock):
     clauses = []
     params: list = []
     if q:
-        clauses.append("web_name LIKE ?")
+        clauses.append("p.web_name LIKE ?")
         params.append(f"%{q}%")
     if category:
-        clauses.append("category = ?")
+        clauses.append("p.category = ?")
         params.append(category)
+    if brand:
+        clauses.append("p.brand = ?")
+        params.append(brand)
+    if min_price is not None:
+        clauses.append("p.price >= ?")
+        params.append(min_price)
+    if max_price is not None:
+        clauses.append("p.price <= ?")
+        params.append(max_price)
+    if min_rating is not None:
+        clauses.append("rating.avg_rating >= ?")
+        params.append(min_rating)
+    if in_stock:
+        clauses.append("p.stock > 0")
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, params
+
+
+_JOIN_CLAUSE = """
+    LEFT JOIN (
+        SELECT product_id, AVG(rating) AS avg_rating, COUNT(*) AS rating_count
+        FROM reviews GROUP BY product_id
+    ) rating ON rating.product_id = p.id
+    LEFT JOIN click_counts clicks ON clicks.product_id = p.id
+"""
+
+
+@router.get("")
+def list_products(
+    q: str = "",
+    category: str = "",
+    brand: str = "",
+    min_price: int | None = None,
+    max_price: int | None = None,
+    min_rating: float | None = None,
+    in_stock: bool = False,
+    sort: str = "name",
+    page: int = 1,
+    page_size: int = 20,
+):
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    offset = (page - 1) * page_size
+    order_by = SORT_OPTIONS.get(sort, SORT_OPTIONS["name"])
+
+    where, params = _build_filters(q, category, brand, min_price, max_price, min_rating, in_stock)
 
     with get_connection() as conn:
-        total = conn.execute(f"SELECT COUNT(*) AS c FROM products {where}", params).fetchone()["c"]
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM products p {_JOIN_CLAUSE} {where}", params
+        ).fetchone()["c"]
         rows = conn.execute(
-            f"SELECT * FROM products {where} ORDER BY id LIMIT ? OFFSET ?", (*params, page_size, offset)
+            f"""SELECT p.*, rating.avg_rating AS rating_avg, rating.rating_count AS rating_count
+                FROM products p {_JOIN_CLAUSE} {where}
+                ORDER BY {order_by}, p.id
+                LIMIT ? OFFSET ?""",
+            (*params, page_size, offset),
         ).fetchall()
-        items = []
-        for row in rows:
-            d = row_to_dict(row)
-            agg = conn.execute(
-                "SELECT AVG(rating) AS avg_rating, COUNT(*) AS n FROM reviews WHERE product_id = ?", (d["id"],)
-            ).fetchone()
-            items.append(_serialize_product(d, agg["avg_rating"], agg["n"]))
+        items = [_serialize_product(row_to_dict(row)) for row in rows]
 
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/facets")
+def get_facets(q: str = "", category: str = ""):
+    """Distinct brands and price bounds for the current filter context, so the
+    filter UI can offer only choices that actually return results."""
+    where, params = _build_filters(q, category, "", None, None, None, False)
+    with get_connection() as conn:
+        brands = conn.execute(
+            f"SELECT DISTINCT p.brand FROM products p {_JOIN_CLAUSE} {where} "
+            f"{'AND' if where else 'WHERE'} p.brand IS NOT NULL ORDER BY p.brand",
+            params,
+        ).fetchall()
+        bounds = conn.execute(
+            f"SELECT MIN(p.price) AS min_price, MAX(p.price) AS max_price FROM products p {_JOIN_CLAUSE} {where}",
+            params,
+        ).fetchone()
+    return {
+        "brands": [r["brand"] for r in brands],
+        "price_min": bounds["min_price"],
+        "price_max": bounds["max_price"],
+    }
 
 
 @router.get("/{product_id}")
 def get_product(product_id: int):
     with get_connection() as conn:
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute(
+            f"""SELECT p.*, rating.avg_rating AS rating_avg, rating.rating_count AS rating_count
+                FROM products p {_JOIN_CLAUSE} WHERE p.id = ?""",
+            (product_id,),
+        ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
-        d = row_to_dict(row)
-        agg = conn.execute(
-            "SELECT AVG(rating) AS avg_rating, COUNT(*) AS n FROM reviews WHERE product_id = ?", (product_id,)
-        ).fetchone()
-    return _serialize_product(d, agg["avg_rating"], agg["n"])
+    return _serialize_product(row_to_dict(row))
 
 
 class ReviewRequest(BaseModel):

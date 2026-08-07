@@ -78,6 +78,11 @@ CREATE TABLE IF NOT EXISTS orders (
     total INTEGER NOT NULL,
     created_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS click_counts (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    count INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
