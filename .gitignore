@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+node_modules/
+
+pharmacy-search/backend/index/
+pharmacy-search/backend/logs/
+pharmacy-search/backend/eval/_held_out_nearmiss.json
+
+raw/
+products.jsonl
+pharmacy-search/backend/data/products.jsonl
+
+*.log
+learned_pairs.json
