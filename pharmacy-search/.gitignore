@@ -1,0 +1,4 @@
+backend/index/
+backend/logs/
+__pycache__/
+*.pyc

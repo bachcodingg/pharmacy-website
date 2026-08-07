@@ -1,0 +1,1 @@
+"""Pharmacy search backend package."""
