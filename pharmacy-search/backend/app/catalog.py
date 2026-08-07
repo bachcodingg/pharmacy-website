@@ -43,7 +43,7 @@ def _serialize_product(row: dict) -> dict:
 
 
 def _build_filters(q, category, brand, min_price, max_price, min_rating, in_stock):
-    clauses = []
+    clauses = ["p.is_active = 1"]
     params: list = []
     if q:
         clauses.append("p.web_name LIKE ?")

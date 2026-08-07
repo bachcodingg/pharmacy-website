@@ -4,6 +4,7 @@ import {
 } from '../api.js';
 import { escapeHtml, formatVnd } from '../shared.js';
 import { refreshNavBadges } from '../nav.js';
+import { navigate } from '../router.js';
 
 export async function render(root) {
   if (!getToken()) {
@@ -38,8 +39,7 @@ function renderCart(root, cart) {
         </form>
         <div id="discount-error" class="form-error"></div>
 
-        <button type="button" class="checkout-btn" disabled title="Checkout isn't built yet">Proceed to checkout</button>
-        <p class="hint-text">Checkout isn't available yet — this button is a placeholder for what comes next.</p>
+        <button type="button" class="checkout-btn" id="checkout-btn" ${cart.items.length ? '' : 'disabled'}>Proceed to checkout</button>
       </aside>
     </div>
   `;
@@ -113,6 +113,8 @@ function renderCart(root, cart) {
       renderCart(root, updated);
     });
   }
+
+  root.querySelector('#checkout-btn').addEventListener('click', () => navigate('#/checkout'));
 }
 
 function renderLines(container, lines, { emptyText, title, showSaveForLater, showMoveToCart }) {

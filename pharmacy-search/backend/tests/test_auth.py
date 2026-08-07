@@ -140,10 +140,13 @@ def test_address_crud():
 
 
 def test_orders_list_starts_empty():
+    # Order history now lives at /api/checkout/orders (see test_checkout.py for
+    # the full placed-order flow) - this just confirms a fresh account starts
+    # with no history there.
     email = _unique_email()
     r = client.post("/api/auth/register", json={"email": email, "password": "correcthorse", "name": "Alice"})
     headers = {"Authorization": f"Bearer {r.json()['token']}"}
 
-    r = client.get("/api/auth/orders", headers=headers)
+    r = client.get("/api/checkout/orders", headers=headers)
     assert r.status_code == 200
     assert r.json() == []

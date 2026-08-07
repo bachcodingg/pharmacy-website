@@ -119,7 +119,23 @@ export function deleteAddress(id) {
 }
 
 export function listOrders() {
-  return apiFetch('/api/auth/orders', { auth: true });
+  return apiFetch('/api/checkout/orders', { auth: true });
+}
+
+export function getOrder(id) {
+  return apiFetch(`/api/checkout/orders/${id}`, { auth: true });
+}
+
+export function getCheckoutOptions() {
+  return apiFetch('/api/checkout/options');
+}
+
+export function placeOrder({ addressId, shippingMethod, paymentMethod }) {
+  return apiFetch('/api/checkout/place-order', {
+    method: 'POST',
+    body: { address_id: addressId, shipping_method: shippingMethod, payment_method: paymentMethod },
+    auth: true,
+  });
 }
 
 export function listProducts({
@@ -206,4 +222,31 @@ export function removeFromWishlist(productId) {
 
 export function moveWishlistItemToCart(productId) {
   return apiFetch(`/api/wishlist/${productId}/move-to-cart`, { method: 'POST', auth: true });
+}
+
+export function adminListProducts({ lowStockThreshold, includeInactive = false } = {}) {
+  const params = new URLSearchParams();
+  if (lowStockThreshold !== undefined) params.set('low_stock_threshold', String(lowStockThreshold));
+  if (includeInactive) params.set('include_inactive', 'true');
+  return apiFetch(`/api/admin/products?${params.toString()}`, { auth: true });
+}
+
+export function adminCreateProduct(product) {
+  return apiFetch('/api/admin/products', { method: 'POST', body: product, auth: true });
+}
+
+export function adminUpdateProduct(id, fields) {
+  return apiFetch(`/api/admin/products/${id}`, { method: 'PUT', body: fields, auth: true });
+}
+
+export function adminUpdateStock(id, stock) {
+  return apiFetch(`/api/admin/products/${id}/stock`, { method: 'PUT', body: { stock }, auth: true });
+}
+
+export function adminDeactivateProduct(id) {
+  return apiFetch(`/api/admin/products/${id}`, { method: 'DELETE', auth: true });
+}
+
+export function adminReactivateProduct(id) {
+  return apiFetch(`/api/admin/products/${id}/reactivate`, { method: 'POST', auth: true });
 }

@@ -42,8 +42,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
     return row_to_dict(row)
 
 
+def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 def public_user(user: dict) -> dict:
-    return {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "is_admin": bool(user.get("is_admin"))}
 
 
 class RegisterRequest(BaseModel):
@@ -227,16 +233,6 @@ def delete_address(address_id: int, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Address not found")
         conn.execute("DELETE FROM addresses WHERE id = ?", (address_id,))
     return {"status": "deleted"}
-
-
-@router.get("/orders")
-def list_orders(user: dict = Depends(get_current_user)):
-    """Always empty today - there is no checkout flow yet to create an order.
-    The table and this endpoint exist so order history has somewhere to land
-    once checkout is built."""
-    with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)).fetchall()
-    return [row_to_dict(r) for r in rows]
 
 
 def _create_session(conn, user_id: int) -> str:

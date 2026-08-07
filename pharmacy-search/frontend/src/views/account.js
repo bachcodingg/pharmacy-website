@@ -2,7 +2,7 @@ import {
   getToken, login, register, logout, getMe, updateProfile, changePassword,
   forgotPassword, resetPassword, listAddresses, createAddress, deleteAddress, listOrders,
 } from '../api.js';
-import { escapeHtml } from '../shared.js';
+import { escapeHtml, formatVnd } from '../shared.js';
 import { refreshCurrentRoute } from '../router.js';
 import { updateNavAuthState } from '../nav.js';
 
@@ -190,9 +190,21 @@ async function renderSignedIn(root, user) {
     renderAddresses();
   });
 
+  const STATUS_LABELS = { placed: 'Placed', pending_payment: 'Awaiting payment (demo)' };
   root.querySelector('#order-list').innerHTML = orders.length
-    ? orders.map((o) => `<div>Order #${o.id} — ${escapeHtml(o.status)}</div>`).join('')
-    : '<div class="empty-state">No orders yet — checkout isn\'t built yet, so this stays empty for now.</div>';
+    ? `<div class="order-history-list">${orders
+        .map(
+          (o) => `
+        <a href="#/order/${o.id}" class="order-history-item">
+          <div>
+            <strong>Order #${o.id}</strong>
+            <span class="status-pill status-corrected">${escapeHtml(STATUS_LABELS[o.status] || o.status)}</span>
+          </div>
+          <div class="hint-text">${o.items.length} item${o.items.length === 1 ? '' : 's'} · ${formatVnd(o.total)}</div>
+        </a>`
+        )
+        .join('')}</div>`
+    : '<div class="empty-state">No orders yet.</div>';
 
   root.querySelector('#profile-form').addEventListener('submit', async (event) => {
     event.preventDefault();

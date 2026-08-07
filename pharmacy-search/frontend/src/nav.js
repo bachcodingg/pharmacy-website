@@ -8,6 +8,7 @@ export function renderNav() {
       <a href="#/browse" data-route="browse">Browse</a>
       <a href="#/wishlist" data-route="wishlist">Wishlist<span class="nav-badge" id="nav-wishlist-badge" hidden>0</span></a>
       <a href="#/cart" data-route="cart">Cart<span class="nav-badge" id="nav-cart-badge" hidden>0</span></a>
+      <a href="#/admin" data-route="admin" id="nav-admin-link" hidden>Admin</a>
       <a href="#/account" data-route="account" id="nav-account">${ICONS.user}<span id="nav-account-label">Sign in</span></a>
     </nav>
   `;
@@ -15,9 +16,11 @@ export function renderNav() {
 
 export async function updateNavAuthState() {
   const label = document.getElementById('nav-account-label');
+  const adminLink = document.getElementById('nav-admin-link');
   if (!label) return;
   if (!getToken()) {
     label.textContent = 'Sign in';
+    if (adminLink) adminLink.hidden = true;
     setBadge('nav-cart-badge', 0);
     setBadge('nav-wishlist-badge', 0);
     return;
@@ -25,6 +28,7 @@ export async function updateNavAuthState() {
   try {
     const user = await getMe();
     label.textContent = user.name;
+    if (adminLink) adminLink.hidden = !user.is_admin;
     await refreshNavBadges();
   } catch (err) {
     label.textContent = 'Sign in';

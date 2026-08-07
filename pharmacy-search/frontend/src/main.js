@@ -8,6 +8,9 @@ import * as productView from './views/product.js';
 import * as accountView from './views/account.js';
 import * as cartView from './views/cart.js';
 import * as wishlistView from './views/wishlist.js';
+import * as checkoutView from './views/checkout.js';
+import * as orderView from './views/order.js';
+import * as adminView from './views/admin.js';
 
 const app = document.getElementById('app');
 app.innerHTML = `
@@ -29,6 +32,9 @@ registerRoute('product', productView.render);
 registerRoute('account', accountView.render);
 registerRoute('cart', cartView.render);
 registerRoute('wishlist', wishlistView.render);
+registerRoute('checkout', checkoutView.render);
+registerRoute('order', orderView.render);
+registerRoute('admin', adminView.render);
 
 updateNavAuthState();
 startRouter();

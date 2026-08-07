@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     salt TEXT NOT NULL,
     name TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
 
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS products (
     currency TEXT NOT NULL DEFAULT 'VND',
     price_is_estimated INTEGER NOT NULL DEFAULT 0,
     stock INTEGER,
-    stock_is_estimated INTEGER NOT NULL DEFAULT 0
+    stock_is_estimated INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
@@ -74,9 +76,27 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
-    status TEXT NOT NULL,
+    address_id INTEGER REFERENCES addresses(id),
+    shipping_method TEXT NOT NULL,
+    shipping_fee INTEGER NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL,
+    subtotal INTEGER NOT NULL,
+    discount_code TEXT,
+    discount_amount INTEGER NOT NULL DEFAULT 0,
     total INTEGER NOT NULL,
+    status TEXT NOT NULL,
     created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    web_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_price INTEGER NOT NULL,
+    price_was_estimated INTEGER NOT NULL DEFAULT 0,
+    line_total INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS click_counts (
