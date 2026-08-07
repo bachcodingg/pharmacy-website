@@ -1,12 +1,17 @@
 import json
+import sys
 import time
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from app.corrector import Corrector
+from app.db import get_connection, init_db
+from app import auth, catalog
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE_DIR))
+
 corrector = Corrector(
     BASE_DIR / "index" / "keywords.json",
     BASE_DIR / "index" / "nearmiss.json",
@@ -18,7 +23,17 @@ QUERY_LOG_PATH = LOG_DIR / "queries.jsonl"
 CLICK_LOG_PATH = LOG_DIR / "clicks.jsonl"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+init_db()
+with get_connection() as _conn:
+    _needs_migration = _conn.execute("SELECT COUNT(*) AS c FROM products").fetchone()["c"] == 0
+if _needs_migration:
+    from build.migrate_products import migrate as _migrate_products
+
+    _migrate_products()
+
 app = FastAPI(title="Pharmacy Search")
+app.include_router(auth.router)
+app.include_router(catalog.router)
 
 
 def _append_log(path: Path, entry: dict) -> None:
