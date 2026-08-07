@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from app.corrector import Corrector
 from app.db import get_connection, init_db
-from app import auth, catalog
+from app import auth, catalog, cart, wishlist
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
@@ -41,6 +41,8 @@ _aggregate_clicks()
 app = FastAPI(title="Pharmacy Search")
 app.include_router(auth.router)
 app.include_router(catalog.router)
+app.include_router(cart.router)
+app.include_router(wishlist.router)
 
 
 def _append_log(path: Path, entry: dict) -> None:

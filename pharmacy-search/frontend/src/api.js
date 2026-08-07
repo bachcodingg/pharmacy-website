@@ -159,3 +159,51 @@ export function createReview(productId, rating, comment) {
     auth: true,
   });
 }
+
+export function getCart() {
+  return apiFetch('/api/cart', { auth: true });
+}
+
+export function addToCart(productId, quantity = 1) {
+  return apiFetch('/api/cart/items', { method: 'POST', body: { product_id: productId, quantity }, auth: true });
+}
+
+export function updateCartQuantity(productId, quantity) {
+  return apiFetch(`/api/cart/items/${productId}`, { method: 'PUT', body: { quantity }, auth: true });
+}
+
+export function removeFromCart(productId) {
+  return apiFetch(`/api/cart/items/${productId}`, { method: 'DELETE', auth: true });
+}
+
+export function saveForLater(productId) {
+  return apiFetch(`/api/cart/items/${productId}/save-for-later`, { method: 'POST', auth: true });
+}
+
+export function moveCartItemToCart(productId) {
+  return apiFetch(`/api/cart/items/${productId}/move-to-cart`, { method: 'POST', auth: true });
+}
+
+export function applyDiscountCode(code) {
+  return apiFetch('/api/cart/discount', { method: 'POST', body: { code }, auth: true });
+}
+
+export function removeDiscountCode() {
+  return apiFetch('/api/cart/discount', { method: 'DELETE', auth: true });
+}
+
+export function getWishlist() {
+  return apiFetch('/api/wishlist', { auth: true });
+}
+
+export function addToWishlist(productId) {
+  return apiFetch('/api/wishlist', { method: 'POST', body: { product_id: productId }, auth: true });
+}
+
+export function removeFromWishlist(productId) {
+  return apiFetch(`/api/wishlist/${productId}`, { method: 'DELETE', auth: true });
+}
+
+export function moveWishlistItemToCart(productId) {
+  return apiFetch(`/api/wishlist/${productId}/move-to-cart`, { method: 'POST', auth: true });
+}

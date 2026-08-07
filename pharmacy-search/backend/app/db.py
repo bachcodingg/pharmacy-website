@@ -83,7 +83,52 @@ CREATE TABLE IF NOT EXISTS click_counts (
     product_id INTEGER PRIMARY KEY REFERENCES products(id),
     count INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS cart_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL DEFAULT 1,
+    saved_for_later INTEGER NOT NULL DEFAULT 0,
+    added_at REAL NOT NULL,
+    UNIQUE(user_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS discount_codes (
+    code TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS cart_discounts (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+    code TEXT NOT NULL REFERENCES discount_codes(code)
+);
+
+CREATE TABLE IF NOT EXISTS wishlist_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    added_at REAL NOT NULL,
+    UNIQUE(user_id, product_id)
+);
 """
+
+SEED_DISCOUNT_CODES = [
+    ("WELCOME10", "percent", 10),
+    ("SAVE20K", "fixed", 20000),
+]
+
+
+def seed_discount_codes() -> None:
+    with get_connection() as conn:
+        for code, kind, value in SEED_DISCOUNT_CODES:
+            conn.execute(
+                "INSERT INTO discount_codes (code, kind, value, active) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT(code) DO NOTHING",
+                (code, kind, value),
+            )
 
 
 def get_connection() -> sqlite3.Connection:
@@ -97,6 +142,7 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+    seed_discount_codes()
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:

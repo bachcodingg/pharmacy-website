@@ -106,6 +106,20 @@ body {
 .main-nav a:hover { background: var(--brand-tint); color: var(--text); }
 .main-nav a.active { background: var(--brand-tint); color: var(--brand-dark); }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .search-card {
   position: relative;
   background: var(--card);
@@ -450,11 +464,29 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .catalog-card:hover { border-color: var(--brand); box-shadow: var(--shadow); }
+.catalog-card-link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }
 .catalog-card-name { font-size: 13.5px; font-weight: 600; line-height: 1.4; min-height: 2.8em; }
 .catalog-card-meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .catalog-brand { font-size: 11px; color: var(--text-muted); }
 .catalog-card-price { font-size: 15px; font-weight: 700; color: var(--brand-dark); }
 .catalog-card-stock { font-size: 11px; color: var(--text-muted); }
+
+.quick-add-btn {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.quick-add-btn:disabled { opacity: 0.6; cursor: default; }
+
+.wishlist-card { position: relative; }
+.wishlist-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 24px; }
 .pager button {
@@ -485,6 +517,29 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .product-detail-rating { margin-bottom: 10px; }
 .product-detail-price { font-size: 22px; font-weight: 700; color: var(--brand-dark); }
 .product-detail-stock { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
+
+.product-detail-actions { display: flex; gap: 8px; margin-bottom: 6px; }
+.product-detail-actions input[type="number"] {
+  width: 64px;
+  padding: 9px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+}
+.product-detail-actions button {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: white;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.product-detail-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.product-detail-actions .secondary-btn { background: none; color: var(--brand-dark); width: auto; margin-top: 0; }
 .product-detail-desc { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 6px; }
 .ingredient-list { padding-left: 20px; font-size: 13.5px; line-height: 1.8; }
 .ingredient-dose { color: var(--text-muted); font-size: 12px; }
@@ -552,6 +607,66 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
   cursor: pointer;
 }
 .secondary-btn { background: none; color: var(--text-muted); border-color: var(--border); margin-top: 10px; width: 100%; }
+
+.page-title { font-size: 22px; margin: 0 0 18px; }
+
+.cart-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+.cart-items { display: flex; flex-direction: column; gap: 10px; }
+.cart-section-title { font-size: 14px; color: var(--text-muted); margin: 18px 0 10px; }
+
+.cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.cart-line-name { grid-column: 1; font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+.cart-line-name:hover { text-decoration: underline; }
+.cart-line-price { grid-column: 1; font-size: 12.5px; color: var(--text-muted); }
+.cart-line-controls { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; justify-content: center; }
+.cart-line-qty { font-size: 12.5px; color: var(--text-muted); }
+.cart-line-total { font-weight: 700; color: var(--brand-dark); }
+.cart-line .qty-input { width: 56px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); text-align: center; }
+.cart-line-actions { grid-column: 1 / -1; display: flex; gap: 14px; margin-top: 6px; }
+
+.cart-summary {
+  position: sticky;
+  top: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.cart-summary h2 { font-size: 14px; margin: 0 0 14px; }
+.summary-row { display: flex; justify-content: space-between; font-size: 13.5px; padding: 6px 0; color: var(--text-muted); }
+.summary-total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-size: 15px; font-weight: 700; color: var(--text); }
+.summary-discount { color: var(--auto-text); }
+
+.discount-form { display: flex; gap: 6px; margin-top: 16px; }
+.discount-form input { flex: 1; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 13px; }
+.discount-form button { padding: 9px 12px; border-radius: 8px; border: 1px solid var(--brand); background: var(--brand); color: white; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+
+.checkout-btn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--text-muted);
+  color: var(--card);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 720px) {
+  .cart-layout { grid-template-columns: 1fr; }
+  .cart-summary { position: static; }
+}
 
 .form-error { color: var(--none-text); font-size: 12.5px; }
 .form-note { color: var(--auto-text); font-size: 12.5px; }

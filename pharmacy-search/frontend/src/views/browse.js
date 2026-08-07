@@ -1,6 +1,7 @@
-import { listProducts, getFacets } from '../api.js';
+import { listProducts, getFacets, addToCart, getToken } from '../api.js';
 import { escapeHtml, formatVnd, starRating } from '../shared.js';
 import { navigate } from '../router.js';
+import { refreshNavBadges } from '../nav.js';
 
 const CATEGORIES = [
   { value: '', label: 'All categories' },
@@ -128,22 +129,44 @@ export async function render(root, params) {
     grid.innerHTML = data.items
       .map(
         (p) => `
-      <a class="catalog-card" href="#/product/${p.id}">
-        <div class="catalog-card-name">${escapeHtml(p.webName)}</div>
-        <div class="catalog-card-meta">
-          ${p.brand ? `<span class="catalog-brand">${escapeHtml(p.brand)}${p.brand_is_estimated ? ' *' : ''}</span>` : ''}
-          ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
-          ${p.prescription ? '<span class="rx-tag">Rx</span>' : ''}
-        </div>
-        <div class="catalog-card-rating">${starRating(p.rating_avg)}</div>
-        <div class="catalog-card-price">
-          ${p.price !== null ? formatVnd(p.price, p.price_unit) : 'Price unavailable'}
-          ${p.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}
-        </div>
-        <div class="catalog-card-stock">${p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}</div>
-      </a>`
+      <div class="catalog-card">
+        <a href="#/product/${p.id}" class="catalog-card-link">
+          <div class="catalog-card-name">${escapeHtml(p.webName)}</div>
+          <div class="catalog-card-meta">
+            ${p.brand ? `<span class="catalog-brand">${escapeHtml(p.brand)}${p.brand_is_estimated ? ' *' : ''}</span>` : ''}
+            ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
+            ${p.prescription ? '<span class="rx-tag">Rx</span>' : ''}
+          </div>
+          <div class="catalog-card-rating">${starRating(p.rating_avg)}</div>
+          <div class="catalog-card-price">
+            ${p.price !== null ? formatVnd(p.price, p.price_unit) : 'Price unavailable'}
+            ${p.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}
+          </div>
+          <div class="catalog-card-stock">${p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}</div>
+        </a>
+        <button type="button" class="quick-add-btn" data-quick-add="${p.id}" ${p.stock > 0 ? '' : 'disabled'}>
+          ${p.stock > 0 ? '+ Add to cart' : 'Out of stock'}
+        </button>
+      </div>`
       )
       .join('');
+
+    grid.querySelectorAll('[data-quick-add]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!getToken()) {
+          navigate('#/account');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Added ✓';
+        await addToCart(parseInt(btn.dataset.quickAdd, 10), 1);
+        refreshNavBadges();
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = '+ Add to cart';
+        }, 1200);
+      });
+    });
   }
 
   function renderPager(data) {

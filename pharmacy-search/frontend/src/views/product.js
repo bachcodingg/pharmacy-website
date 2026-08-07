@@ -1,6 +1,7 @@
-import { getProduct, listReviews, createReview, getToken } from '../api.js';
+import { getProduct, listReviews, createReview, getToken, addToCart, addToWishlist } from '../api.js';
 import { escapeHtml, formatVnd, starRating } from '../shared.js';
 import { navigate } from '../router.js';
+import { refreshNavBadges } from '../nav.js';
 
 export async function render(root, params) {
   const productId = params?.[0];
@@ -39,6 +40,13 @@ export async function render(root, params) {
       </div>
       <div class="product-detail-stock">${product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'} ${product.stock_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}</div>
 
+      <div class="product-detail-actions">
+        <input type="number" id="add-qty" min="1" max="${Math.max(product.stock, 1)}" value="1" ${product.stock > 0 ? '' : 'disabled'} />
+        <button type="button" id="add-to-cart-btn" ${product.stock > 0 ? '' : 'disabled'}>${product.stock > 0 ? 'Add to cart' : 'Out of stock'}</button>
+        <button type="button" id="add-to-wishlist-btn" class="secondary-btn">Save to wishlist</button>
+      </div>
+      <div id="cart-action-note" class="form-note"></div>
+
       ${product.shortDescription ? `<p class="product-detail-desc">${escapeHtml(product.shortDescription)}</p>` : ''}
 
       ${product.ingredients?.length ? `
@@ -61,6 +69,31 @@ export async function render(root, params) {
         ${r.comment ? `<p class="review-comment">${escapeHtml(r.comment)}</p>` : ''}
       </div>`).join('')
     : '<div class="empty-state">No reviews yet.</div>';
+
+  const addToCartBtn = root.querySelector('#add-to-cart-btn');
+  const addToWishlistBtn = root.querySelector('#add-to-wishlist-btn');
+  const cartNote = root.querySelector('#cart-action-note');
+
+  addToCartBtn.addEventListener('click', async () => {
+    if (!getToken()) {
+      navigate('#/account');
+      return;
+    }
+    const qty = Math.max(1, parseInt(root.querySelector('#add-qty').value, 10) || 1);
+    await addToCart(product.id, qty);
+    refreshNavBadges();
+    cartNote.textContent = 'Added to cart.';
+  });
+
+  addToWishlistBtn.addEventListener('click', async () => {
+    if (!getToken()) {
+      navigate('#/account');
+      return;
+    }
+    await addToWishlist(product.id);
+    refreshNavBadges();
+    cartNote.textContent = 'Saved to wishlist.';
+  });
 
   const formSlot = root.querySelector('#review-form-slot');
   if (!getToken()) {

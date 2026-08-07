@@ -6,6 +6,8 @@ import * as searchView from './views/search.js';
 import * as browseView from './views/browse.js';
 import * as productView from './views/product.js';
 import * as accountView from './views/account.js';
+import * as cartView from './views/cart.js';
+import * as wishlistView from './views/wishlist.js';
 
 const app = document.getElementById('app');
 app.innerHTML = `
@@ -25,6 +27,8 @@ registerRoute('search', searchView.render);
 registerRoute('browse', browseView.render);
 registerRoute('product', productView.render);
 registerRoute('account', accountView.render);
+registerRoute('cart', cartView.render);
+registerRoute('wishlist', wishlistView.render);
 
 updateNavAuthState();
 startRouter();
