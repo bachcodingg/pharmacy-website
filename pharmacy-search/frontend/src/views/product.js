@@ -28,12 +28,13 @@ export async function render(root, params) {
         <span class="sku-tag">SKU ${escapeHtml(product.sku)}</span>
         ${product.brand ? `<span class="catalog-brand">${escapeHtml(product.brand)}${product.brand_is_estimated ? ' (estimated)' : ''}</span>` : ''}
         ${product.category ? `<span class="product-category">${escapeHtml(product.category)}</span>` : ''}
+        ${product.prescription ? '<span class="rx-tag">Prescription required</span>' : ''}
       </div>
 
       <div class="product-detail-rating">${starRating(product.rating_avg)} <span class="rating-count">(${product.rating_count} review${product.rating_count === 1 ? '' : 's'})</span></div>
 
       <div class="product-detail-price">
-        ${product.price !== null ? formatVnd(product.price) : 'Price unavailable'}
+        ${product.price !== null ? formatVnd(product.price, product.price_unit) : 'Price unavailable'}
         ${product.price_is_estimated ? '<span class="estimate-tag">estimated placeholder price</span>' : ''}
       </div>
       <div class="product-detail-stock">${product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'} ${product.stock_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}</div>

@@ -54,10 +54,11 @@ export async function render(root, params) {
         <div class="catalog-card-meta">
           ${p.brand ? `<span class="catalog-brand">${escapeHtml(p.brand)}${p.brand_is_estimated ? ' *' : ''}</span>` : ''}
           ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
+          ${p.prescription ? '<span class="rx-tag">Rx</span>' : ''}
         </div>
         <div class="catalog-card-rating">${starRating(p.rating_avg)}</div>
         <div class="catalog-card-price">
-          ${p.price !== null ? formatVnd(p.price) : 'Price unavailable'}
+          ${p.price !== null ? formatVnd(p.price, p.price_unit) : 'Price unavailable'}
           ${p.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}
         </div>
         <div class="catalog-card-stock">${p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}</div>

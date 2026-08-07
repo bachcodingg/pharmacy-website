@@ -12,9 +12,10 @@ export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-export function formatVnd(amount) {
+export function formatVnd(amount, unit) {
   if (amount === null || amount === undefined) return null;
-  return new Intl.NumberFormat('vi-VN').format(amount) + '₫';
+  const formatted = new Intl.NumberFormat('vi-VN').format(amount) + '₫';
+  return unit ? `${formatted} / ${unit}` : formatted;
 }
 
 export function starRating(avg) {

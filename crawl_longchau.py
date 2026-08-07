@@ -574,6 +574,38 @@ def extract_ingredients(tree):
     return parsed, linked, raw
 
 
+def extract_next_data_product(html):
+    """Pull structured product data straight from the page's Next.js
+    __NEXT_DATA__ payload - authoritative price/brand/prescription-flag/
+    registration-number/specification, not scraped off rendered text. Not
+    every page has it (or has price on it - some prescription items show
+    no price at all), so every caller must handle a None return."""
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    product = data.get("props", {}).get("pageProps", {}).get("product")
+    if not product:
+        return None
+
+    prices = product.get("prices") or []
+    default_price = next((p for p in prices if p.get("isSellDefault")), None) or (prices[0] if prices else None)
+
+    return {
+        "sourceSku": product.get("sku"),
+        "brand": product.get("brand") or None,
+        "prescription": product.get("prescription"),
+        "registNum": product.get("registNum") or None,
+        "specification": product.get("specification") or None,
+        "price": default_price.get("price") if default_price else None,
+        "priceUnit": default_price.get("measureUnitName") if default_price else None,
+        "currency": (default_price.get("currencySymbol") if default_price else None) or "đ",
+    }
+
+
 def extract_spec(tree):
     text = tree.body.text(separator="\n", deep=True, strip=True)
     m = re.search(r"Quy cách\s*\n+(.{3,120}?)\s*\n+(?:Thành phần|Công dụng)",
@@ -596,6 +628,7 @@ def parse_product(html, url):
         return None
 
     ing_parsed, ing_linked, ing_raw = extract_ingredients(tree)
+    next_data = extract_next_data_product(html) or {}
 
     short_description = clean_text(meta(tree, "og:description")
                                    or meta(tree, "description"))
@@ -610,8 +643,14 @@ def parse_product(html, url):
         "ingredients": ing_parsed,
         "ingredientLinks": ing_linked,
         "ingredientRaw": ing_raw,
-        "spec": extract_spec(tree),
-        "regNo": extract_reg_no(tree),
+        "spec": next_data.get("specification") or extract_spec(tree),
+        "regNo": next_data.get("registNum") or extract_reg_no(tree),
+        "sourceSku": next_data.get("sourceSku"),
+        "brand": next_data.get("brand"),
+        "prescription": next_data.get("prescription"),
+        "price": next_data.get("price"),
+        "priceUnit": next_data.get("priceUnit"),
+        "currency": next_data.get("currency"),
         "normalizedWebName": normalize(clean_text(web_name) or ""),
         "normalizedShortDescription": normalize(short_description or ""),
         "normalizedIngredients": normalize(ingredient_text),
@@ -654,6 +693,73 @@ def load_cached_products(limit=None):
     return rows
 
 
+def reparse_cache():
+    """Re-run parse_product() over every HTML file already sitting in raw/ -
+    zero network requests. Use this after changing what parse_product()
+    extracts (e.g. adding price) instead of re-crawling: the site was already
+    fetched once, the new fields (price, brand, prescription, spec, regNo)
+    were in that HTML all along, they just weren't being read yet."""
+    files = sorted(f for f in os.listdir(RAW_DIR) if f.endswith(".html"))
+    print(f"== Re-parsing {len(files)} cached pages from {RAW_DIR}/ (no network) ==")
+
+    ok = fail = 0
+    stats = {"desc": 0, "ing": 0, "spec": 0, "reg": 0, "price": 0, "brand": 0, "mismatch": 0}
+    records = []
+
+    for i, filename in enumerate(files, 1):
+        path = os.path.join(RAW_DIR, filename)
+        with open(path, encoding="utf-8") as f:
+            html = f.read()
+
+        url_match = re.search(r'"url":"(https://nhathuoclongchau\.com\.vn/[^"]+)"', html)
+        url = url_match.group(1).replace("\\/", "/") if url_match else None
+        if not url:
+            fail += 1
+            continue
+
+        try:
+            rec = parse_product(html, url)
+        except Exception as e:
+            print(f"  [parse loi] {filename}: {e}")
+            fail += 1
+            continue
+        if not rec:
+            fail += 1
+            continue
+
+        records.append(rec)
+        ok += 1
+        if rec["shortDescription"]:
+            stats["desc"] += 1
+        if rec["ingredients"]:
+            stats["ing"] += 1
+        if rec["spec"]:
+            stats["spec"] += 1
+        if rec["regNo"]:
+            stats["reg"] += 1
+        if rec["price"] is not None:
+            stats["price"] += 1
+        if rec["brand"]:
+            stats["brand"] += 1
+        if any(l["mismatch"] for l in rec["ingredientLinks"]):
+            stats["mismatch"] += 1
+
+        if i % PROGRESS_EVERY == 0 or i == len(files):
+            print(f"[progress] {i}/{len(files)} ok={ok} fail={fail}")
+
+    with open(OUT_FILE, "w", encoding="utf-8") as out:
+        for rec in records:
+            out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    print(f"\n== Xong: {ok} ok, {fail} loi -> {OUT_FILE} ==")
+    if ok:
+        for k, label in [("desc", "shortDescription"), ("ing", "ingredients"),
+                         ("spec", "spec"), ("reg", "regNo"),
+                         ("price", "price (real, from site)"), ("brand", "brand (real, from site)")]:
+            print(f"   co {label:26s}: {stats[k]:4d}/{ok} ({100 * stats[k] // ok}%)")
+        print(f"   link text/slug lech  : {stats['mismatch']} san pham")
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=200)
@@ -663,7 +769,13 @@ async def main():
                     help="thoi gian cho truoc toi thieu giua cac request")
     ap.add_argument("--max-delay", type=float, default=0.15,
                     help="thoi gian cho truoc toi da giua cac request")
+    ap.add_argument("--reparse-cache", action="store_true",
+                    help="re-parse every cached raw/*.html file into products.jsonl, no network requests")
     args = ap.parse_args()
+
+    if args.reparse_cache:
+        reparse_cache()
+        return
 
     os.makedirs(RAW_DIR, exist_ok=True)
     set_delay(args.min_delay, args.max_delay)

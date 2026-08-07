@@ -86,24 +86,36 @@ def migrate():
 
                 category = product.get("category")
                 seed = deterministic_seed(source_url or web_name)
-                brand = guess_brand(web_name)
+
+                real_brand = product.get("brand")
+                brand = real_brand or guess_brand(web_name)
+                brand_is_estimated = real_brand is None and brand is not None
+
+                real_price = product.get("price")
+                price_is_estimated = real_price is None
+                price = real_price if real_price is not None else estimate_price(category, seed)
+
                 sku = f"LC-{i:05d}"
 
                 conn.execute(
                     """INSERT INTO products
-                    (sku, source_url, web_name, short_description, category, brand, brand_is_estimated,
-                     ingredients_json, price, currency, price_is_estimated, stock, stock_is_estimated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', 1, ?, 1)""",
+                    (sku, source_sku, source_url, web_name, short_description, category, brand, brand_is_estimated,
+                     prescription, ingredients_json, price, price_unit, currency, price_is_estimated, stock, stock_is_estimated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, ?, 1)""",
                     (
                         sku,
+                        product.get("sourceSku"),
                         source_url,
                         web_name,
                         product.get("shortDescription"),
                         category,
                         brand,
-                        int(brand is not None),
+                        int(brand_is_estimated),
+                        product.get("prescription"),
                         json.dumps(product.get("ingredients", []), ensure_ascii=False),
-                        estimate_price(category, seed),
+                        price,
+                        product.get("priceUnit"),
+                        int(price_is_estimated),
                         estimate_stock(seed),
                     ),
                 )
@@ -116,4 +128,6 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8")
     inserted, skipped = migrate()
     print(f"migrated {inserted} products ({skipped} skipped for missing webName)")
-    print("NOTE: price, stock, and brand are placeholder/estimated values - see build/migrate_products.py")
+    print("Price and brand are real where the site exposed them (see products.jsonl); every row still")
+    print("carries price_is_estimated / brand_is_estimated so the fallback cases are always distinguishable.")
+    print("Stock has no real source at all (the site's product JSON has no quantity field) - always estimated.")
