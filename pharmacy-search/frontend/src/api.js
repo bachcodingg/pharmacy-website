@@ -250,3 +250,57 @@ export function adminDeactivateProduct(id) {
 export function adminReactivateProduct(id) {
   return apiFetch(`/api/admin/products/${id}/reactivate`, { method: 'POST', auth: true });
 }
+
+export function adminListOrders({ status = '' } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  return apiFetch(`/api/admin/orders?${params.toString()}`, { auth: true });
+}
+
+export function adminUpdateOrderStatus(id, status) {
+  return apiFetch(`/api/admin/orders/${id}/status`, { method: 'PUT', body: { status }, auth: true });
+}
+
+export function adminListUsers() {
+  return apiFetch('/api/admin/users', { auth: true });
+}
+
+export function adminSetUserAdmin(id, isAdmin) {
+  return apiFetch(`/api/admin/users/${id}/admin`, { method: 'PUT', body: { is_admin: isAdmin }, auth: true });
+}
+
+export function adminListCoupons() {
+  return apiFetch('/api/admin/coupons', { auth: true });
+}
+
+export function adminCreateCoupon(coupon) {
+  return apiFetch('/api/admin/coupons', { method: 'POST', body: coupon, auth: true });
+}
+
+export function adminSetCouponActive(code, active) {
+  return apiFetch(`/api/admin/coupons/${code}`, { method: 'PUT', body: { active }, auth: true });
+}
+
+export function adminListCorrections() {
+  return apiFetch('/api/admin/corrections', { auth: true });
+}
+
+export function adminApproveCorrection(fromQuery, toQuery) {
+  return apiFetch('/api/admin/corrections/approve', { method: 'POST', body: { from_query: fromQuery, to_query: toQuery }, auth: true });
+}
+
+export function adminRejectCorrection(fromQuery, toQuery) {
+  return apiFetch('/api/admin/corrections/reject', { method: 'POST', body: { from_query: fromQuery, to_query: toQuery }, auth: true });
+}
+
+export function adminGetSummary() {
+  return apiFetch('/api/admin/reports/summary', { auth: true });
+}
+
+export function adminGetSalesByDay(days = 14) {
+  return apiFetch(`/api/admin/reports/sales-by-day?days=${days}`, { auth: true });
+}
+
+export function adminGetTopProducts(limit = 10) {
+  return apiFetch(`/api/admin/reports/top-products?limit=${limit}`, { auth: true });
+}

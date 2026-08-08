@@ -728,6 +728,51 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .low-stock-row { background: var(--dym-bg); }
 .inactive-row { opacity: 0.5; }
 
+.admin-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
+.admin-tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.admin-tab:hover { color: var(--text); }
+.admin-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+.admin-panel { margin-top: 24px; }
+.admin-panel h3 { font-size: 14px; margin-bottom: 10px; }
+
+.stat-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.stat-tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.stat-tile-value { font-size: 22px; font-weight: 700; color: var(--text); }
+.stat-tile-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.stat-tile-warn .stat-tile-value { color: var(--dym-text); }
+
+.sales-chart-svg { width: 100%; height: 200px; overflow: visible; }
+.chart-bar { fill: var(--brand); }
+.chart-bar:hover { fill: var(--brand-dark); }
+.chart-baseline { stroke: var(--border); stroke-width: 1; }
+#sales-chart { position: relative; }
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--text);
+  color: var(--card);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transform: translateY(-100%);
+  z-index: 10;
+}
+
 /* Account */
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .account-card {

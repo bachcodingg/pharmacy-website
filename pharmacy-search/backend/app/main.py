@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.corrector import Corrector
 from app.db import get_connection, init_db
 from app import auth, catalog, cart, wishlist, checkout, inventory
+from app import admin_orders, admin_users, admin_coupons, admin_corrections, admin_reports
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
@@ -45,6 +46,11 @@ app.include_router(cart.router)
 app.include_router(wishlist.router)
 app.include_router(checkout.router)
 app.include_router(inventory.router)
+app.include_router(admin_orders.router)
+app.include_router(admin_users.router)
+app.include_router(admin_coupons.router)
+app.include_router(admin_corrections.router)
+app.include_router(admin_reports.router)
 
 
 def _append_log(path: Path, entry: dict) -> None:
