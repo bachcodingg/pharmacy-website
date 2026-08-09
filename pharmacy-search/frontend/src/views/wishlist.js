@@ -1,5 +1,5 @@
 import { getWishlist, removeFromWishlist, moveWishlistItemToCart, getToken } from '../api.js';
-import { escapeHtml, formatVnd } from '../shared.js';
+import { escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
 import { refreshNavBadges } from '../nav.js';
 
 export async function render(root) {
@@ -29,6 +29,7 @@ function renderList(root, items) {
     .map(
       (item) => `
     <div class="catalog-card wishlist-card">
+      ${productThumbHtml(item.imageUrl, item.webName)}
       <a href="#/product/${item.product_id}" class="catalog-card-name">${escapeHtml(item.webName)}</a>
       <div class="catalog-card-price">
         ${item.price !== null ? formatVnd(item.price, item.price_unit) : 'Price unavailable'}

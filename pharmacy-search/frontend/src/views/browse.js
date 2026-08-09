@@ -1,5 +1,5 @@
 import { listProducts, getFacets, addToCart, getToken } from '../api.js';
-import { escapeHtml, formatVnd, starRating } from '../shared.js';
+import { escapeHtml, formatVnd, starRating, productThumbHtml } from '../shared.js';
 import { navigate } from '../router.js';
 import { refreshNavBadges } from '../nav.js';
 
@@ -131,6 +131,7 @@ export async function render(root, params) {
         (p) => `
       <div class="catalog-card">
         <a href="#/product/${p.id}" class="catalog-card-link">
+          ${productThumbHtml(p.imageUrl, p.webName)}
           <div class="catalog-card-name">${escapeHtml(p.webName)}</div>
           <div class="catalog-card-meta">
             ${p.brand ? `<span class="catalog-brand">${escapeHtml(p.brand)}${p.brand_is_estimated ? ' *' : ''}</span>` : ''}

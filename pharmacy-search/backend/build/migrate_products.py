@@ -100,8 +100,9 @@ def migrate():
                 conn.execute(
                     """INSERT INTO products
                     (sku, source_sku, source_url, web_name, short_description, category, brand, brand_is_estimated,
-                     prescription, ingredients_json, price, price_unit, currency, price_is_estimated, stock, stock_is_estimated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, ?, 1)""",
+                     prescription, ingredients_json, price, price_unit, currency, price_is_estimated, stock, stock_is_estimated,
+                     image_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, ?, 1, ?)""",
                     (
                         sku,
                         product.get("sourceSku"),
@@ -117,6 +118,7 @@ def migrate():
                         product.get("priceUnit"),
                         int(price_is_estimated),
                         estimate_stock(seed),
+                        product.get("image"),
                     ),
                 )
                 inserted += 1

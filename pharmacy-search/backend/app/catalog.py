@@ -25,6 +25,7 @@ def _serialize_product(row: dict) -> dict:
         "sku": row["sku"],
         "sourceSku": row["source_sku"],
         "webName": row["web_name"],
+        "imageUrl": row["image_url"],
         "shortDescription": row["short_description"],
         "category": row["category"],
         "brand": row["brand"],

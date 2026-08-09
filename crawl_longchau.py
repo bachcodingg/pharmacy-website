@@ -594,6 +594,11 @@ def extract_next_data_product(html):
     prices = product.get("prices") or []
     default_price = next((p for p in prices if p.get("isSellDefault")), None) or (prices[0] if prices else None)
 
+    primary_image = (product.get("primaryImage") or {}).get("url") or None
+    secondary_images = [
+        img.get("url") for img in (product.get("secondaryImages") or []) if img.get("url")
+    ]
+
     return {
         "sourceSku": product.get("sku"),
         "brand": product.get("brand") or None,
@@ -603,6 +608,8 @@ def extract_next_data_product(html):
         "price": default_price.get("price") if default_price else None,
         "priceUnit": default_price.get("measureUnitName") if default_price else None,
         "currency": (default_price.get("currencySymbol") if default_price else None) or "đ",
+        "image": primary_image,
+        "images": secondary_images,
     }
 
 
@@ -651,6 +658,8 @@ def parse_product(html, url):
         "price": next_data.get("price"),
         "priceUnit": next_data.get("priceUnit"),
         "currency": next_data.get("currency"),
+        "image": next_data.get("image"),
+        "images": next_data.get("images") or [],
         "normalizedWebName": normalize(clean_text(web_name) or ""),
         "normalizedShortDescription": normalize(short_description or ""),
         "normalizedIngredients": normalize(ingredient_text),
@@ -703,7 +712,7 @@ def reparse_cache():
     print(f"== Re-parsing {len(files)} cached pages from {RAW_DIR}/ (no network) ==")
 
     ok = fail = 0
-    stats = {"desc": 0, "ing": 0, "spec": 0, "reg": 0, "price": 0, "brand": 0, "mismatch": 0}
+    stats = {"desc": 0, "ing": 0, "spec": 0, "reg": 0, "price": 0, "brand": 0, "image": 0, "mismatch": 0}
     records = []
 
     for i, filename in enumerate(files, 1):
@@ -741,6 +750,8 @@ def reparse_cache():
             stats["price"] += 1
         if rec["brand"]:
             stats["brand"] += 1
+        if rec["image"]:
+            stats["image"] += 1
         if any(l["mismatch"] for l in rec["ingredientLinks"]):
             stats["mismatch"] += 1
 
@@ -755,7 +766,8 @@ def reparse_cache():
     if ok:
         for k, label in [("desc", "shortDescription"), ("ing", "ingredients"),
                          ("spec", "spec"), ("reg", "regNo"),
-                         ("price", "price (real, from site)"), ("brand", "brand (real, from site)")]:
+                         ("price", "price (real, from site)"), ("brand", "brand (real, from site)"),
+                         ("image", "image (real, from site)")]:
             print(f"   co {label:26s}: {stats[k]:4d}/{ok} ({100 * stats[k] // ok}%)")
         print(f"   link text/slug lech  : {stats['mismatch']} san pham")
 

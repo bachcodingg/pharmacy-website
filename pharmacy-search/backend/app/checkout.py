@@ -32,8 +32,14 @@ def get_options():
 
 
 def _serialize_order(conn, order_row: dict) -> dict:
+    # LEFT JOIN, not INNER: order_items must still render if the product was
+    # later deactivated (soft-delete keeps the row) - image_url just comes
+    # back None in that edge case instead of dropping the line item.
     items = conn.execute(
-        "SELECT * FROM order_items WHERE order_id = ?", (order_row["id"],)
+        """SELECT order_items.*, products.image_url FROM order_items
+           LEFT JOIN products ON products.id = order_items.product_id
+           WHERE order_items.order_id = ?""",
+        (order_row["id"],),
     ).fetchall()
     return {
         "id": order_row["id"],
@@ -50,6 +56,7 @@ def _serialize_order(conn, order_row: dict) -> dict:
             {
                 "product_id": i["product_id"],
                 "webName": i["web_name"],
+                "imageUrl": i["image_url"],
                 "quantity": i["quantity"],
                 "unit_price": i["unit_price"],
                 "price_was_estimated": bool(i["price_was_estimated"]),

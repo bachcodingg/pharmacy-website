@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS products (
     price_is_estimated INTEGER NOT NULL DEFAULT 0,
     stock INTEGER,
     stock_is_estimated INTEGER NOT NULL DEFAULT 0,
-    is_active INTEGER NOT NULL DEFAULT 1
+    is_active INTEGER NOT NULL DEFAULT 1,
+    image_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS reviews (

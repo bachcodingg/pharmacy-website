@@ -1,5 +1,5 @@
 import { getOrder, getToken } from '../api.js';
-import { escapeHtml, formatVnd } from '../shared.js';
+import { escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
 import { navigate } from '../router.js';
 
 const STATUS_LABELS = {
@@ -42,6 +42,7 @@ export async function render(root, params) {
           .map(
             (item) => `
           <div class="cart-line">
+            ${productThumbHtml(item.imageUrl, item.webName)}
             <a href="#/product/${item.product_id}" class="cart-line-name">${escapeHtml(item.webName)}</a>
             <div class="cart-line-price">${formatVnd(item.unit_price)} each ${item.price_was_estimated ? '<span class="estimate-tag">was estimated</span>' : ''}</div>
             <div class="cart-line-controls">

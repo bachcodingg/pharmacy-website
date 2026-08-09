@@ -146,7 +146,11 @@ class Corrector:
         for product in self.products:
             name_norm = normalize(product.get("webName", ""))
             if all(term in name_norm for term in terms):
-                results.append({"webName": product.get("webName"), "category": product.get("category")})
+                results.append({
+                    "webName": product.get("webName"),
+                    "category": product.get("category"),
+                    "imageUrl": product.get("image"),
+                })
                 if len(results) >= limit:
                     break
         return results

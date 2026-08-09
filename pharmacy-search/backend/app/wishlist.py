@@ -14,6 +14,7 @@ def _serialize(row: dict) -> dict:
         "product_id": row["product_id"],
         "webName": row["web_name"],
         "sku": row["sku"],
+        "imageUrl": row["image_url"],
         "price": row["price"],
         "price_unit": row["price_unit"],
         "price_is_estimated": bool(row["price_is_estimated"]),
@@ -25,7 +26,7 @@ def _serialize(row: dict) -> dict:
 def _get_wishlist(conn, user_id: int) -> list:
     rows = conn.execute(
         """SELECT wishlist_items.*, products.web_name, products.sku, products.price, products.price_unit,
-                  products.price_is_estimated, products.currency, products.stock
+                  products.price_is_estimated, products.currency, products.stock, products.image_url
            FROM wishlist_items JOIN products ON products.id = wishlist_items.product_id
            WHERE wishlist_items.user_id = ? ORDER BY wishlist_items.added_at DESC""",
         (user_id,),

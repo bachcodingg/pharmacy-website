@@ -1,5 +1,5 @@
 import { getProduct, listReviews, createReview, getToken, addToCart, addToWishlist } from '../api.js';
-import { escapeHtml, formatVnd, starRating } from '../shared.js';
+import { escapeHtml, formatVnd, starRating, productThumbHtml } from '../shared.js';
 import { navigate } from '../router.js';
 import { refreshNavBadges } from '../nav.js';
 
@@ -24,6 +24,7 @@ export async function render(root, params) {
   root.innerHTML = `
     <a href="#/browse" class="back-link">← Back to browse</a>
     <div class="product-detail">
+      ${productThumbHtml(product.imageUrl, product.webName, 'product-thumb-hero')}
       <h1>${escapeHtml(product.webName)}</h1>
       <div class="product-detail-meta">
         <span class="sku-tag">SKU ${escapeHtml(product.sku)}</span>

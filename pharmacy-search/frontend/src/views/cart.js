@@ -2,7 +2,7 @@ import {
   getCart, updateCartQuantity, removeFromCart, saveForLater, moveCartItemToCart,
   applyDiscountCode, removeDiscountCode, getToken,
 } from '../api.js';
-import { escapeHtml, formatVnd } from '../shared.js';
+import { escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
 import { refreshNavBadges } from '../nav.js';
 import { navigate } from '../router.js';
 
@@ -128,6 +128,7 @@ function renderLines(container, lines, { emptyText, title, showSaveForLater, sho
       .map(
         (item) => `
       <div class="cart-line">
+        ${productThumbHtml(item.imageUrl, item.webName)}
         <a href="#/product/${item.product_id}" class="cart-line-name">${escapeHtml(item.webName)}</a>
         <div class="cart-line-price">
           ${formatVnd(item.price, item.price_unit)}

@@ -293,7 +293,7 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 }
 .product-card:hover { border-color: var(--brand); }
 .product-card-clicked { background: var(--brand-tint); border-color: var(--brand); }
-.product-name { line-height: 1.4; }
+.product-name { flex: 1; line-height: 1.4; }
 .product-category {
   flex-shrink: 0;
   font-size: 10.5px;
@@ -488,6 +488,39 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .wishlist-card { position: relative; }
 .wishlist-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 
+/* Product images */
+.product-thumb {
+  background-color: var(--brand-tint);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f7a6c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.5 20.5 3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7Z'/%3E%3Cline x1='8.5' y1='8.5' x2='15.5' y2='15.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 34%;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.product-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--card); }
+
+.product-card .product-thumb { width: 44px; height: 44px; }
+.cart-line .product-thumb { width: 56px; height: 56px; }
+.catalog-card .product-thumb,
+.catalog-card-link .product-thumb { width: 100%; aspect-ratio: 1 / 1; }
+
+.product-thumb-hero {
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 16px;
+  background-color: var(--brand-tint);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f7a6c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.5 20.5 3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7Z'/%3E%3Cline x1='8.5' y1='8.5' x2='15.5' y2='15.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 24%;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.product-thumb-hero img { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--card); }
+
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 24px; }
 .pager button {
   padding: 8px 14px;
@@ -616,21 +649,23 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 
 .cart-line {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
   gap: 4px 16px;
+  align-items: start;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
 }
-.cart-line-name { grid-column: 1; font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+.cart-line .product-thumb { grid-column: 1; grid-row: 1 / -1; align-self: center; }
+.cart-line-name { grid-column: 2; font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
 .cart-line-name:hover { text-decoration: underline; }
-.cart-line-price { grid-column: 1; font-size: 12.5px; color: var(--text-muted); }
-.cart-line-controls { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; justify-content: center; }
+.cart-line-price { grid-column: 2; font-size: 12.5px; color: var(--text-muted); }
+.cart-line-controls { grid-column: 3; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; justify-content: center; }
 .cart-line-qty { font-size: 12.5px; color: var(--text-muted); }
 .cart-line-total { font-weight: 700; color: var(--brand-dark); }
 .cart-line .qty-input { width: 56px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); text-align: center; }
-.cart-line-actions { grid-column: 1 / -1; display: flex; gap: 14px; margin-top: 6px; }
+.cart-line-actions { grid-column: 2 / -1; display: flex; gap: 14px; margin-top: 6px; }
 
 .cart-summary {
   position: sticky;

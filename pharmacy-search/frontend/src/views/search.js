@@ -1,5 +1,5 @@
 import { search, suggest, logClick } from '../api.js';
-import { ICONS, escapeHtml } from '../shared.js';
+import { ICONS, escapeHtml, productThumbHtml } from '../shared.js';
 
 const PRESETS = [
   { label: 'etrogen', hint: 'typo → auto-correct' },
@@ -100,6 +100,7 @@ export function render(root) {
     results.innerHTML = `<ul class="products">${products
       .map(
         (p) => `<li class="product-card" data-query="${escapeHtml(result.query)}" data-product="${escapeHtml(p.webName)}" tabindex="0" role="button">
+          ${productThumbHtml(p.imageUrl, p.webName)}
           <span class="product-name">${escapeHtml(p.webName)}</span>
           ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
         </li>`

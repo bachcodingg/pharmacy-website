@@ -16,6 +16,7 @@ def _serialize_line(row: dict) -> dict:
         "product_id": row["product_id"],
         "webName": row["web_name"],
         "sku": row["sku"],
+        "imageUrl": row["image_url"],
         "price": price,
         "price_unit": row["price_unit"],
         "price_is_estimated": bool(row["price_is_estimated"]),
@@ -38,7 +39,7 @@ def _compute_discount(subtotal: int, code_row) -> int:
 def _get_cart(conn, user_id: int) -> dict:
     rows = conn.execute(
         """SELECT cart_items.*, products.web_name, products.sku, products.price, products.price_unit,
-                  products.price_is_estimated, products.currency, products.stock
+                  products.price_is_estimated, products.currency, products.stock, products.image_url
            FROM cart_items JOIN products ON products.id = cart_items.product_id
            WHERE cart_items.user_id = ? ORDER BY cart_items.added_at""",
         (user_id,),
