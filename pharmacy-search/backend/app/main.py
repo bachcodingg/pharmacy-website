@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.corrector import Corrector
 from app.db import get_connection, init_db
@@ -97,3 +98,15 @@ def click(session_id: str, query: str, product: str = ""):
         "product": product,
     })
     return {"status": "logged"}
+
+
+# Serves the built frontend (frontend/dist) when it's present, so the API and
+# the SPA can ship as one process on one origin - no CORS, no separate static
+# host. Mounted last: FastAPI matches the /api/* routes above before falling
+# through to this catch-all. html=True serves index.html at "/"; nothing
+# below it needs a path-based SPA fallback because the frontend uses a hash
+# router (#/browse) - the server only ever sees requests for "/" and static
+# asset files, never a route path.
+_FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+if _FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
