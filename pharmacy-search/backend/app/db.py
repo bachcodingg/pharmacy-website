@@ -2,6 +2,8 @@ import os
 import sqlite3
 from pathlib import Path
 
+from app.corrector import search_key
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.environ.get("PHARMACY_SEARCH_DB", str(BASE_DIR / "data" / "app.db")))
 
@@ -62,7 +64,8 @@ CREATE TABLE IF NOT EXISTS products (
     stock INTEGER,
     stock_is_estimated INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
-    image_url TEXT
+    image_url TEXT,
+    search_text TEXT
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
@@ -160,9 +163,36 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_search_text(conn: sqlite3.Connection) -> None:
+    """Keep products.search_text present and populated.
+
+    The column holds the accent- and tone-stripped form of web_name that
+    catalog search matches against, so a query typed without diacritics
+    ("ban chai") still finds "Bàn chải ...". Databases created before the
+    column existed get it added and backfilled here rather than needing a
+    rebuild."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+    if "search_text" not in columns:
+        conn.execute("ALTER TABLE products ADD COLUMN search_text TEXT")
+    # Every row is reconciled, not just the empty ones, so that a change to how
+    # names are folded takes effect on the next start and a write site that
+    # forgot to update the column repairs itself. That is a full table scan at
+    # startup - fine for a catalog this size, but it would want a stored
+    # fold-version marker before the catalog grew much larger.
+    stale = [
+        (key, row["id"])
+        for row in conn.execute("SELECT id, web_name, search_text FROM products")
+        for key in [search_key(row["web_name"])]
+        if key != row["search_text"]
+    ]
+    if stale:
+        conn.executemany("UPDATE products SET search_text = ? WHERE id = ?", stale)
+
+
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        _ensure_search_text(conn)
     seed_discount_codes()
 
 

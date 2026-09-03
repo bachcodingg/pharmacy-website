@@ -98,6 +98,76 @@ def test_search_by_query_and_category():
     assert all(item["category"] == "thuoc" for item in r.json()["items"])
 
 
+def _names(params):
+    return [item["webName"] for item in client.get("/api/products", params=params).json()["items"]]
+
+
+def test_search_matches_names_typed_without_accents():
+    # The catalog used to LIKE the raw web_name, so a query typed the way
+    # people actually type - no diacritics - could never match a Vietnamese
+    # product name.
+    accented = client.get("/api/products", params={"q": "bàn chải", "page_size": 20}).json()
+    plain = client.get("/api/products", params={"q": "ban chai", "page_size": 20}).json()
+    assert accented["total"] > 0
+    assert plain["total"] == accented["total"]
+    assert plain["corrected_to"] is None  # no correction needed, just folding
+
+
+def test_search_matches_half_typed_telex():
+    r = client.get("/api/products", params={"q": "banf chair", "page_size": 20}).json()
+    assert r["total"] > 0
+    assert all("chải" in name.lower() for name in [i["webName"] for i in r["items"]])
+
+
+def test_search_words_match_out_of_order_and_with_gaps():
+    r = client.get("/api/products", params={"q": "rang ban chai", "page_size": 20}).json()
+    assert r["total"] > 0
+
+
+def test_single_letter_term_must_match_a_whole_word():
+    # "%c%" as a substring is in almost every product name, so the "c" of
+    # "vitamin c" has to mean the word C, not the letter.
+    broad = client.get("/api/products", params={"q": "vitamin", "page_size": 1}).json()["total"]
+    narrow = client.get("/api/products", params={"q": "vitamin c", "page_size": 1}).json()["total"]
+    assert 0 < narrow < broad
+
+
+def test_hyphenated_brand_matches_the_spaced_spelling():
+    hyphenated = client.get("/api/products", params={"q": "oral-b", "page_size": 1}).json()["total"]
+    spaced = client.get("/api/products", params={"q": "oral b", "page_size": 1}).json()["total"]
+    assert hyphenated > 0 and hyphenated == spaced
+
+
+def test_every_way_of_typing_a_query_returns_the_same_products():
+    # Telex, VNI, half-typed, accented or bare - the catalog must not care.
+    # These match by folding alone, so corrected_to stays None: the lexicon
+    # fallback is a safety net, not what makes Vietnamese input work.
+    variants = [
+        "thuốc tránh thai",
+        "thuoc tranh thai",
+        "thuoc tranhs thai",
+        "thuoocs traxnh thai",
+        "thuoc1 tranh2 thai",
+    ]
+    results = [client.get("/api/products", params={"q": v, "page_size": 50}).json() for v in variants]
+    assert results[0]["total"] > 0
+    assert {r["total"] for r in results} == {results[0]["total"]}
+    assert all(r["corrected_to"] is None for r in results)
+    assert len({tuple(i["id"] for i in r["items"]) for r in results}) == 1
+
+
+def test_search_falls_back_to_the_spelling_corrector():
+    r = client.get("/api/products", params={"q": "vitmain c", "page_size": 5}).json()
+    assert r["total"] > 0
+    assert r["corrected_to"] is not None
+
+
+def test_search_reports_no_correction_when_nothing_helps():
+    r = client.get("/api/products", params={"q": "qqzzxx", "page_size": 5}).json()
+    assert r["total"] == 0
+    assert r["corrected_to"] is None
+
+
 def test_filter_by_brand():
     brand = client.get("/api/products/facets").json()["brands"][0]
     r = client.get("/api/products", params={"brand": brand, "page_size": 50})

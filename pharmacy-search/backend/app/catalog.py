@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user
+from app.corrector import get_corrector, search_key
 from app.db import get_connection, row_to_dict
 
 router = APIRouter(prefix="/api/products", tags=["catalog"])
@@ -46,9 +47,21 @@ def _serialize_product(row: dict) -> dict:
 def _build_filters(q, category, brand, min_price, max_price, min_rating, in_stock):
     clauses = ["p.is_active = 1"]
     params: list = []
-    if q:
-        clauses.append("p.web_name LIKE ?")
-        params.append(f"%{q}%")
+    # Match each query word against the folded name (products.search_text)
+    # rather than the raw one. A LIKE on web_name compares diacritics
+    # literally, so "ban chai" could never reach "Bàn chải ..."; folding both
+    # sides puts them in the same alphabet. Words are AND-ed independently so
+    # order and the gaps between them stop mattering too - "ban chai rang"
+    # finds "Bàn chải đánh răng".
+    for word in search_key(q).split():
+        # Mirrors _term_matches in the corrector: a one-letter term has to land
+        # on a whole word, since as a substring it is in nearly every name.
+        if len(word) == 1:
+            clauses.append("' ' || p.search_text || ' ' LIKE ?")
+            params.append(f"% {word} %")
+        else:
+            clauses.append("p.search_text LIKE ?")
+            params.append(f"%{word}%")
     if category:
         clauses.append("p.category = ?")
         params.append(category)
@@ -79,6 +92,31 @@ _JOIN_CLAUSE = """
 """
 
 
+def _match_exists(conn, where: str, params: list) -> bool:
+    return conn.execute(
+        f"SELECT 1 FROM products p {_JOIN_CLAUSE} {where} LIMIT 1", params
+    ).fetchone() is not None
+
+
+def _resolve_query(conn, q, category, brand, min_price, max_price, min_rating, in_stock):
+    """Return the query to actually search with, plus the correction applied.
+
+    Folding accents handles a differently-spelled word; it does nothing for a
+    misspelled one. So when the literal query matches no product we ask the
+    spelling corrector for a reading and use it - but only after confirming it
+    finds something, otherwise a garbage query would be reported as "corrected"
+    to an equally empty result."""
+    filters = (category, brand, min_price, max_price, min_rating, in_stock)
+    if not q or _match_exists(conn, *_build_filters(q, *filters)):
+        return q, None
+    suggestion = get_corrector().correct(q).get("suggestion") or ""
+    if not suggestion or search_key(suggestion) == search_key(q):
+        return q, None
+    if not _match_exists(conn, *_build_filters(suggestion, *filters)):
+        return q, None
+    return suggestion, suggestion
+
+
 @router.get("")
 def list_products(
     q: str = "",
@@ -97,9 +135,13 @@ def list_products(
     offset = (page - 1) * page_size
     order_by = SORT_OPTIONS.get(sort, SORT_OPTIONS["name"])
 
-    where, params = _build_filters(q, category, brand, min_price, max_price, min_rating, in_stock)
-
     with get_connection() as conn:
+        effective_q, corrected_to = _resolve_query(
+            conn, q, category, brand, min_price, max_price, min_rating, in_stock
+        )
+        where, params = _build_filters(
+            effective_q, category, brand, min_price, max_price, min_rating, in_stock
+        )
         total = conn.execute(
             f"SELECT COUNT(*) AS c FROM products p {_JOIN_CLAUSE} {where}", params
         ).fetchone()["c"]
@@ -112,15 +154,24 @@ def list_products(
         ).fetchall()
         items = [_serialize_product(row_to_dict(row)) for row in rows]
 
-    return {"items": items, "page": page, "page_size": page_size, "total": total}
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "corrected_to": corrected_to,
+    }
 
 
 @router.get("/facets")
 def get_facets(q: str = "", category: str = ""):
     """Distinct brands and price bounds for the current filter context, so the
     filter UI can offer only choices that actually return results."""
-    where, params = _build_filters(q, category, "", None, None, None, False)
     with get_connection() as conn:
+        # Same correction as the listing, so the filter panel offers the brands
+        # of the products actually on screen instead of going empty on a typo.
+        effective_q, _ = _resolve_query(conn, q, category, "", None, None, None, False)
+        where, params = _build_filters(effective_q, category, "", None, None, None, False)
         brands = conn.execute(
             f"SELECT DISTINCT p.brand FROM products p {_JOIN_CLAUSE} {where} "
             f"{'AND' if where else 'WHERE'} p.brand IS NOT NULL ORDER BY p.brand",

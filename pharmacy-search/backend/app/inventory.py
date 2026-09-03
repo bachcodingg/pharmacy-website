@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth import get_current_admin
+from app.corrector import search_key
 from app.db import get_connection, row_to_dict
 
 router = APIRouter(prefix="/api/admin/products", tags=["inventory"])
@@ -58,10 +59,11 @@ def create_product(body: CreateProductRequest, admin: dict = Depends(get_current
     with get_connection() as conn:
         cursor = conn.execute(
             """INSERT INTO products
-            (sku, web_name, short_description, category, brand, brand_is_estimated,
+            (sku, web_name, search_text, short_description, category, brand, brand_is_estimated,
              ingredients_json, price, price_unit, currency, price_is_estimated, stock, stock_is_estimated, is_active)
-            VALUES (?, ?, ?, ?, ?, 0, '[]', ?, ?, 'VND', 0, ?, 0, 1)""",
-            (sku, body.webName, body.shortDescription, body.category, body.brand, body.price, body.price_unit, body.stock),
+            VALUES (?, ?, ?, ?, ?, ?, 0, '[]', ?, ?, 'VND', 0, ?, 0, 1)""",
+            (sku, body.webName, search_key(body.webName), body.shortDescription, body.category, body.brand,
+             body.price, body.price_unit, body.stock),
         )
         row = conn.execute("SELECT * FROM products WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return _serialize(row_to_dict(row))
@@ -98,6 +100,10 @@ def update_product(product_id: int, body: UpdateProductRequest, admin: dict = De
             # it's no longer a placeholder once an admin has set it deliberately.
             if "price" in updates:
                 updates["price_is_estimated"] = 0
+            # search_text is derived from web_name, so it has to be rewritten
+            # with it or the product stops answering to its own new name.
+            if "web_name" in updates:
+                updates["search_text"] = search_key(updates["web_name"])
             set_clause = ", ".join(f"{k} = ?" for k in updates)
             conn.execute(f"UPDATE products SET {set_clause} WHERE id = ?", (*updates.values(), product_id))
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()

@@ -7,6 +7,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
+from app.corrector import search_key  # noqa: E402
 from app.db import get_connection, init_db  # noqa: E402
 
 DATA_PATH = BASE_DIR / "data" / "products.jsonl"
@@ -99,15 +100,16 @@ def migrate():
 
                 conn.execute(
                     """INSERT INTO products
-                    (sku, source_sku, source_url, web_name, short_description, category, brand, brand_is_estimated,
+                    (sku, source_sku, source_url, web_name, search_text, short_description, category, brand, brand_is_estimated,
                      prescription, ingredients_json, price, price_unit, currency, price_is_estimated, stock, stock_is_estimated,
                      image_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, ?, 1, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, ?, 1, ?)""",
                     (
                         sku,
                         product.get("sourceSku"),
                         source_url,
                         web_name,
+                        search_key(web_name),
                         product.get("shortDescription"),
                         category,
                         brand,

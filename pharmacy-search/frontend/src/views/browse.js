@@ -78,6 +78,7 @@ export async function render(root, params) {
             ${SORT_OPTIONS.map((s) => `<option value="${s.value}">${escapeHtml(s.label)}</option>`).join('')}
           </select>
         </div>
+        <div id="browse-notice"></div>
         <div id="browse-grid" class="product-grid"></div>
         <div id="browse-pager" class="pager"></div>
       </div>
@@ -85,6 +86,7 @@ export async function render(root, params) {
   `;
 
   const grid = root.querySelector('#browse-grid');
+  const browseNotice = root.querySelector('#browse-notice');
   const pager = root.querySelector('#browse-pager');
   const qInput = root.querySelector('#browse-q');
   const sortSelect = root.querySelector('#browse-sort');
@@ -117,8 +119,19 @@ export async function render(root, params) {
       page: state.page,
       pageSize: 20,
     });
+    renderNotice(data);
     renderGrid(data);
     renderPager(data);
+  }
+
+  function renderNotice(data) {
+    if (!data.corrected_to) {
+      browseNotice.innerHTML = '';
+      return;
+    }
+    browseNotice.innerHTML = `<div class="browse-correction">Showing results for <strong>${escapeHtml(
+      data.corrected_to
+    )}</strong></div>`;
   }
 
   function renderGrid(data) {

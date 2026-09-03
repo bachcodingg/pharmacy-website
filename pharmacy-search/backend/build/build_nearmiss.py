@@ -180,6 +180,16 @@ def all_variants(word: str):
 
 RULE_GROUPS = ["delete", "transpose", "keyboard", "phonetic", "pharma-suffix", "inn-hdrop", "trailing-e", "diacritics", "spacing"]
 
+# Rules the corrector now reproduces live, at query time: plain edit distance
+# covers delete/transpose/keyboard, and the accent-stripped, telex-skeleton and
+# compact vocabulary views cover diacritics and spacing. Baking them into the
+# table too cost 47MB of index and 236k redundant entries loaded into memory on
+# every boot. What stays is the part edit distance genuinely cannot derive -
+# the domain spelling conventions ("chlorpheniramine" -> "clorpheniramin" is
+# three edits, far outside any safe fuzzy radius) - plus pharmacist-approved
+# learned pairs.
+LIVE_REPRODUCIBLE_RULES = frozenset({"delete", "transpose", "keyboard", "diacritics", "spacing"})
+
 
 def build_table(keywords: dict, excluded_rules=frozenset(), learned_pairs=()) -> dict:
     """Pure table-building logic, reusable by both the production build and
@@ -199,6 +209,8 @@ def build_table(keywords: dict, excluded_rules=frozenset(), learned_pairs=()) ->
         variant_pairs = gen_spacing(word) if " " in word else all_variants(word)
         for variant, rule in variant_pairs:
             if not variant or variant == word or rule in excluded_rules:
+                continue
+            if rule in LIVE_REPRODUCIBLE_RULES:
                 continue
             table[variant].append({"keyword": keyword, "weight": WEIGHTS.get(rule, 0.6), "rule": rule})
 

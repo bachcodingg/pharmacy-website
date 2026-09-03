@@ -244,6 +244,19 @@ button.preset:hover { border-color: var(--brand); background: var(--brand-tint);
 .notice-title { font-weight: 600; margin-bottom: 8px; }
 .notice-auto strong, .notice-dym strong, .notice-none strong { color: inherit; }
 
+/* Browse reuses the auto-correct colours so a corrected catalog filter reads
+   the same as a corrected search. */
+.browse-correction {
+  padding: 10px 14px;
+  margin: 0 0 14px;
+  border: 1px solid var(--auto-border);
+  border-radius: var(--radius);
+  background: var(--auto-bg);
+  color: var(--auto-text);
+  font-size: 13.5px;
+}
+.browse-correction strong { color: inherit; }
+
 .link-btn {
   background: none;
   border: none;
@@ -355,7 +368,7 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .status-exact { background: var(--auto-bg); color: var(--auto-text); }
 .status-corrected { background: var(--auto-bg); color: var(--auto-text); }
 .status-protected { background: var(--brand-tint); color: var(--brand-dark); }
-.status-ambiguous, .status-did_you_mean { background: var(--dym-bg); color: var(--dym-text); }
+.status-ambiguous, .status-did_you_mean, .status-accent_ambiguous { background: var(--dym-bg); color: var(--dym-text); }
 .status-unknown { background: var(--none-bg); color: var(--none-text); }
 
 .loading, .empty-state {

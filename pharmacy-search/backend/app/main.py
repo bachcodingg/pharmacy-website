@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.corrector import Corrector
+from app.corrector import get_corrector
 from app.db import get_connection, init_db
 from app import auth, catalog, cart, wishlist, checkout, inventory
 from app import admin_orders, admin_users, admin_coupons, admin_corrections, admin_reports
@@ -14,11 +14,9 @@ from app import admin_orders, admin_users, admin_coupons, admin_corrections, adm
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-corrector = Corrector(
-    BASE_DIR / "index" / "keywords.json",
-    BASE_DIR / "index" / "nearmiss.json",
-    BASE_DIR / "data" / "products.jsonl",
-)
+# Shared with the catalog router, which falls back to it when a browse query
+# matches no product name literally.
+corrector = get_corrector()
 
 LOG_DIR = BASE_DIR / "logs"
 QUERY_LOG_PATH = LOG_DIR / "queries.jsonl"
