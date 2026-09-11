@@ -108,5 +108,6 @@ def top_products(limit: int = 10, admin: dict = Depends(get_current_admin)):
 
 
 def _candidates_path():
-    from pathlib import Path
-    return Path(__file__).resolve().parents[1] / "learning" / "candidate_pairs.json"
+    from app import config
+
+    return config.CANDIDATES_PATH

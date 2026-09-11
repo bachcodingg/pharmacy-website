@@ -36,8 +36,18 @@ async function apiFetch(path, { method = 'GET', body, auth = false } = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.detail || `Request failed (${response.status})`);
+    // detail is usually a string, but structured refusals (the prescription
+    // gate, for one) send an object so the caller can render more than a
+    // sentence. Keep both: a readable message, and the payload behind it.
+    const detail = data.detail;
+    let message;
+    if (typeof detail === 'string') message = detail;
+    else if (detail && typeof detail.message === 'string') message = detail.message;
+    else if (response.status === 429) message = 'Too many attempts. Please wait a moment and try again.';
+    else message = `Request failed (${response.status})`;
+    const error = new Error(message);
     error.status = response.status;
+    error.detail = detail;
     throw error;
   }
   return data;
@@ -130,10 +140,23 @@ export function getCheckoutOptions() {
   return apiFetch('/api/checkout/options');
 }
 
-export function placeOrder({ addressId, shippingMethod, paymentMethod }) {
+export function placeOrder({ addressId, shippingMethod, paymentMethod, prescriptionReference }) {
   return apiFetch('/api/checkout/place-order', {
     method: 'POST',
-    body: { address_id: addressId, shipping_method: shippingMethod, payment_method: paymentMethod },
+    body: {
+      address_id: addressId,
+      shipping_method: shippingMethod,
+      payment_method: paymentMethod,
+      prescription_reference: prescriptionReference || null,
+    },
+    auth: true,
+  });
+}
+
+export function reviewPrescription(orderId, decision, note) {
+  return apiFetch(`/api/admin/orders/${orderId}/prescription`, {
+    method: 'PUT',
+    body: { decision, note: note || null },
     auth: true,
   });
 }

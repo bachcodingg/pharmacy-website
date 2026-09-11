@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for pharmacy-search-giabach on 2026-08-09T16:49:56+07:00
+# fly.toml app configuration file for pharmacy-search-giabach
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -9,7 +9,14 @@ primary_region = 'sin'
 [build]
 
 [env]
+  # Everything stateful resolves under the volume. Only non-secret
+  # configuration belongs here - fly.toml is committed. Secrets go through
+  # `fly secrets set`, which injects them at runtime and never bakes them
+  # into an image layer. See .env.example for the full list.
+  PHARMACY_DATA_DIR = '/data'
   PHARMACY_SEARCH_DB = '/data/app.db'
+  PHARMACY_LOG_DIR = '/data/logs'
+  PHARMACY_LEARNING_DIR = '/data/learning'
 
 [mounts]
   source = 'pharmacy_data'
@@ -20,8 +27,23 @@ primary_region = 'sin'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  # Was 0. A cold start has to parse a 3.4 MB keyword file, a 6.9 MB
+  # near-miss table and the product snapshot before it can answer anything,
+  # so the first request after an idle period paid several seconds. Keeping
+  # one machine warm also means the query log is not being written by a
+  # process that is about to be stopped mid-append.
+  min_machines_running = 1
   processes = ['app']
+
+  # A deploy that cannot answer /api/health does not replace the release
+  # that could. The endpoint reports lexicon size, so it fails loudly if the
+  # search index is missing rather than serving an empty corrector.
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '3s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/api/health'
 
 [[vm]]
   memory = '1gb'

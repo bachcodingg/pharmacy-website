@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.auth import get_current_admin
 from app.corrector import search_key
-from app.db import get_connection, row_to_dict
+from app.db import get_connection, record_admin_action, row_to_dict
 
 router = APIRouter(prefix="/api/admin/products", tags=["inventory"])
 
@@ -65,6 +65,8 @@ def create_product(body: CreateProductRequest, admin: dict = Depends(get_current
             (sku, body.webName, search_key(body.webName), body.shortDescription, body.category, body.brand,
              body.price, body.price_unit, body.stock),
         )
+        record_admin_action(conn, admin["id"], "product_create", "product", cursor.lastrowid,
+                            {"sku": sku, "webName": body.webName, "price": body.price})
         row = conn.execute("SELECT * FROM products WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return _serialize(row_to_dict(row))
 
@@ -106,6 +108,7 @@ def update_product(product_id: int, body: UpdateProductRequest, admin: dict = De
                 updates["search_text"] = search_key(updates["web_name"])
             set_clause = ", ".join(f"{k} = ?" for k in updates)
             conn.execute(f"UPDATE products SET {set_clause} WHERE id = ?", (*updates.values(), product_id))
+            record_admin_action(conn, admin["id"], "product_update", "product", product_id, updates)
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     return _serialize(row_to_dict(row))
 
@@ -122,7 +125,10 @@ def update_stock(product_id: int, body: UpdateStockRequest, admin: dict = Depend
         existing = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Product not found")
+        previous = conn.execute("SELECT stock FROM products WHERE id = ?", (product_id,)).fetchone()["stock"]
         conn.execute("UPDATE products SET stock = ?, stock_is_estimated = 0 WHERE id = ?", (body.stock, product_id))
+        record_admin_action(conn, admin["id"], "stock_update", "product", product_id,
+                            {"from": previous, "to": body.stock})
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     return _serialize(row_to_dict(row))
 
@@ -139,6 +145,7 @@ def deactivate_product(product_id: int, admin: dict = Depends(get_current_admin)
         if not existing:
             raise HTTPException(status_code=404, detail="Product not found")
         conn.execute("UPDATE products SET is_active = 0 WHERE id = ?", (product_id,))
+        record_admin_action(conn, admin["id"], "product_deactivate", "product", product_id)
     return {"status": "deactivated"}
 
 
@@ -149,13 +156,14 @@ def reactivate_product(product_id: int, admin: dict = Depends(get_current_admin)
         if not existing:
             raise HTTPException(status_code=404, detail="Product not found")
         conn.execute("UPDATE products SET is_active = 1 WHERE id = ?", (product_id,))
+        record_admin_action(conn, admin["id"], "product_reactivate", "product", product_id)
     return {"status": "activated"}
 
 
 def _next_manual_sku() -> str:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT sku FROM products WHERE sku LIKE 'MANUAL-%' ORDER BY id DESC LIMIT 1"
+            "SELECT sku FROM products WHERE sku LIKE 'MANUAL-%' ORDER BY sku DESC LIMIT 1"
         ).fetchone()
     next_n = int(row["sku"].split("-")[1]) + 1 if row else 1
     return f"MANUAL-{next_n:05d}"

@@ -1,19 +1,30 @@
 import hashlib
 import secrets
+import sqlite3
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
+from app import config, ratelimit
 from app.db import get_connection, row_to_dict
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 bearer_scheme = HTTPBearer(auto_error=False)
 
-SESSION_TTL_SECONDS = 30 * 24 * 3600
+# Shortened from 30 days. A bearer token that lives in localStorage for a
+# month is a month of access from a single theft; a week bounds that while
+# staying long enough that ordinary shoppers are not signed out mid-visit.
+SESSION_TTL_SECONDS = 7 * 24 * 3600
 RESET_TOKEN_TTL_SECONDS = 3600
 PBKDF2_ITERATIONS = 390_000
+MAX_PASSWORD_LENGTH = 256  # PBKDF2 hashes whatever it is handed; cap the work
+
+# Per-IP, and for login also per-account, over a 15-minute window.
+LOGIN_RATE_LIMIT = (10, 900)
+REGISTER_RATE_LIMIT = (5, 900)
+FORGOT_PASSWORD_RATE_LIMIT = (5, 900)
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -54,13 +65,16 @@ def public_user(user: dict) -> dict:
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    # Length floor is enforced in the handler, not here, so a too-short
+    # password comes back as a 400 with a readable message rather than a
+    # pydantic 422 validation dump.
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    name: str = Field(min_length=1, max_length=120)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class UpdateProfileRequest(BaseModel):
@@ -69,8 +83,8 @@ class UpdateProfileRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -78,40 +92,50 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
+    token: str = Field(max_length=256)
+    new_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class AddressRequest(BaseModel):
-    label: str
-    recipient_name: str
-    phone: str
-    line1: str
-    line2: str | None = None
-    city: str
+    label: str = Field(min_length=1, max_length=60)
+    recipient_name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=1, max_length=32)
+    line1: str = Field(min_length=1, max_length=200)
+    line2: str | None = Field(default=None, max_length=200)
+    city: str = Field(min_length=1, max_length=100)
     is_default: bool = False
 
 
 @router.post("/register", status_code=201)
-def register(body: RegisterRequest):
+def register(body: RegisterRequest, request: Request):
+    ratelimit.enforce(request, "register", *REGISTER_RATE_LIMIT)
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     salt_hex, hash_hex = hash_password(body.password)
     with get_connection() as conn:
-        existing = conn.execute("SELECT id FROM users WHERE email = ?", (body.email,)).fetchone()
-        if existing:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO users (email, password_hash, salt, name, created_at) VALUES (?, ?, ?, ?, ?)",
+                (body.email, hash_hex, salt_hex, body.name, time.time()),
+            )
+        except sqlite3.IntegrityError:
+            # Let the UNIQUE constraint decide, rather than a SELECT followed
+            # by an INSERT: two simultaneous registrations for one address used
+            # to pass the check together and the loser got a raw 500.
             raise HTTPException(status_code=409, detail="An account with this email already exists")
-        cursor = conn.execute(
-            "INSERT INTO users (email, password_hash, salt, name, created_at) VALUES (?, ?, ?, ?, ?)",
-            (body.email, hash_hex, salt_hex, body.name, time.time()),
-        )
         user_id = cursor.lastrowid
         token = _create_session(conn, user_id)
     return {"token": token, "user": {"id": user_id, "email": body.email, "name": body.name}}
 
 
 @router.post("/login")
-def login(body: LoginRequest):
+def login(body: LoginRequest, request: Request):
+    # Limited per IP *and* per account: the first stops one host working
+    # through a password list, the second stops a distributed attempt on one
+    # account. Applied before the 100ms PBKDF2 verification, so a flood costs
+    # the attacker more than it costs this machine.
+    ratelimit.enforce(request, "login-ip", *LOGIN_RATE_LIMIT)
+    ratelimit.enforce(request, "login-account", *LOGIN_RATE_LIMIT, subject=body.email)
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (body.email,)).fetchone()
         if not row or not verify_password(body.password, row["salt"], row["password_hash"]):
@@ -155,8 +179,25 @@ def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_
     return public_user(row_to_dict(row))
 
 
+def _invalidate_sessions(conn, user_id: int, keep_token: str | None = None) -> None:
+    """Drop every session for a user after their credentials change.
+
+    Without this, changing a password did nothing to a token already stolen:
+    it stayed valid for the rest of its TTL. A password change is the one
+    action a user takes *because* they think they have been compromised, so it
+    has to be the action that ends the attacker's access."""
+    if keep_token:
+        conn.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, keep_token))
+    else:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+
 @router.post("/change-password")
-def change_password(body: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+def change_password(
+    body: ChangePasswordRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    user: dict = Depends(get_current_user),
+):
     if not verify_password(body.old_password, user["salt"], user["password_hash"]):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
     if len(body.new_password) < 8:
@@ -164,31 +205,51 @@ def change_password(body: ChangePasswordRequest, user: dict = Depends(get_curren
     salt_hex, hash_hex = hash_password(body.new_password)
     with get_connection() as conn:
         conn.execute("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?", (hash_hex, salt_hex, user["id"]))
+        # Every other device is signed out; the caller keeps the session they
+        # are currently using so a password change is not also a logout.
+        _invalidate_sessions(conn, user["id"], keep_token=credentials.credentials if credentials else None)
+        conn.execute("DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0", (user["id"],))
     return {"status": "password_changed"}
 
 
 @router.post("/forgot-password")
-def forgot_password(body: ForgotPasswordRequest):
-    """Generates a reset token. There is no email service wired up yet, so the
-    token is returned directly in the response instead of being emailed - this
-    endpoint is safe for local development only. Before this goes anywhere near
-    production, swap the return value for an actual email send and stop
-    returning the token to the caller."""
+def forgot_password(body: ForgotPasswordRequest, request: Request):
+    """Issues a reset token.
+
+    The token is never returned to the caller. There is no email provider
+    wired up yet, so in practice this endpoint currently records a token that
+    only an operator reading the database can retrieve - which is the correct
+    failure mode. Returning it in the response body, as this used to, meant
+    anyone who knew an email address could take the account over in two
+    requests.
+
+    PHARMACY_EXPOSE_RESET_TOKEN=1 puts it back in the response for local
+    development only; config.py defaults it off and it must never be set in a
+    deployed environment."""
+    ratelimit.enforce(request, "forgot-password", *FORGOT_PASSWORD_RATE_LIMIT)
+    ratelimit.enforce(request, "forgot-password-account", *FORGOT_PASSWORD_RATE_LIMIT, subject=body.email)
+    response = {"status": "if_the_email_exists_a_reset_link_was_sent"}
     with get_connection() as conn:
         row = conn.execute("SELECT id FROM users WHERE email = ?", (body.email,)).fetchone()
         if not row:
-            return {"status": "if_the_email_exists_a_reset_link_was_sent"}
+            return response
         token = secrets.token_urlsafe(32)
         now = time.time()
+        # One live token at a time: an old one left valid widens the window
+        # for anything that leaked it.
+        conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0", (row["id"],))
         conn.execute(
             "INSERT INTO password_reset_tokens (token, user_id, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)",
             (token, row["id"], now, now + RESET_TOKEN_TTL_SECONDS),
         )
-    return {"status": "if_the_email_exists_a_reset_link_was_sent", "dev_only_reset_token": token}
+    if config.EXPOSE_RESET_TOKEN:
+        response["dev_only_reset_token"] = token
+    return response
 
 
 @router.post("/reset-password")
-def reset_password(body: ResetPasswordRequest):
+def reset_password(body: ResetPasswordRequest, request: Request):
+    ratelimit.enforce(request, "reset-password", *FORGOT_PASSWORD_RATE_LIMIT)
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > ?",
@@ -201,6 +262,9 @@ def reset_password(body: ResetPasswordRequest):
         salt_hex, hash_hex = hash_password(body.new_password)
         conn.execute("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?", (hash_hex, salt_hex, row["user_id"]))
         conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (body.token,))
+        # A reset is the recovery path for an account believed stolen, so it
+        # ends every existing session unconditionally - including the caller's.
+        _invalidate_sessions(conn, row["user_id"])
     return {"status": "password_reset"}
 
 

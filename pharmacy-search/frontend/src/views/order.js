@@ -5,6 +5,20 @@ import { navigate } from '../router.js';
 const STATUS_LABELS = {
   placed: 'Placed',
   pending_payment: 'Awaiting payment (demo)',
+  awaiting_prescription: 'Held for pharmacist review',
+  shipped: 'Shipped',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+};
+
+const PRESCRIPTION_NOTES = {
+  pending_review:
+    'This order contains prescription-only medicine. A pharmacist is reviewing your ' +
+    'prescription; nothing ships until that review is complete.',
+  approved: 'Your prescription was approved by a pharmacist and this order is being processed.',
+  rejected:
+    'A pharmacist could not approve the prescription for this order, so it was cancelled ' +
+    'and nothing was charged. Please contact us if you think this was a mistake.',
 };
 
 export async function render(root, params) {
@@ -35,6 +49,14 @@ export async function render(root, params) {
         <span class="status-pill status-corrected">${escapeHtml(STATUS_LABELS[order.status] || order.status)}</span>
         <span class="hint-text">${escapeHtml(order.shipping_method)} shipping · ${escapeHtml(order.payment_method.toUpperCase())}</span>
       </div>
+
+      ${order.requires_prescription && PRESCRIPTION_NOTES[order.prescription_status]
+        ? `<div class="notice notice-dym"><span class="notice-body">
+             <div class="notice-title">Prescription ${escapeHtml(order.prescription_status.replace('_', ' '))}</div>
+             ${escapeHtml(PRESCRIPTION_NOTES[order.prescription_status])}
+             ${order.prescription_reference ? `<div class="hint-text">Reference: ${escapeHtml(order.prescription_reference)}</div>` : ''}
+           </span></div>`
+        : ''}
 
       <h3>Items</h3>
       <div class="cart-items">

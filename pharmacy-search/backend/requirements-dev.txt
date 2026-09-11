@@ -1,0 +1,5 @@
+# Test-only dependencies. Kept out of requirements.txt so pytest and httpx
+# stop being installed into the production image.
+-r requirements.txt
+pytest==9.0.3
+httpx==0.28.1

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth import get_current_admin
+from app.db import get_connection, record_admin_action
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
@@ -33,6 +34,9 @@ def approve(body: DecisionRequest, admin: dict = Depends(get_current_admin)):
     if not match:
         raise HTTPException(status_code=404, detail="No candidate pair found for that from/to query")
     set_status(body.from_query, body.to_query, "approved")
+    with get_connection() as conn:
+        record_admin_action(conn, admin["id"], "correction_approve", "correction_pair", None,
+                            {"from_query": body.from_query, "to_query": body.to_query})
     return {"status": "approved", "note": "Run build/build_nearmiss.py to apply it to the live search index."}
 
 

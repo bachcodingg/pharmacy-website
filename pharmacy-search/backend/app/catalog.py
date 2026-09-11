@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -117,6 +118,52 @@ def _resolve_query(conn, q, category, brand, min_price, max_price, min_rating, i
     return suggestion, suggestion
 
 
+def search_catalog(conn, query: str, limit: int = 10, min_coverage: float = 0.6) -> list:
+    """Resolve a (corrected) query against the live product table.
+
+    /api/search used to answer from the corrector's own products.jsonl
+    snapshot, loaded once at import. That made the search engine and the shop
+    two different datastores: a soft-deleted product still showed up in
+    search, admin price and name edits never did, and the results carried no
+    id or price - so a search result could not be opened or added to a cart.
+    Search now reads the same rows the catalogue does.
+
+    Coverage scoring is kept from the old implementation: a query still
+    matches when most of its terms land, so one unresolved token does not zero
+    out an otherwise good query."""
+    terms = search_key(query).split()
+    if not terms:
+        return []
+    # Mirrors _build_filters: a one-letter term has to hit a whole word.
+    score_parts, params = [], []
+    for term in terms:
+        if len(term) == 1:
+            score_parts.append("(CASE WHEN ' ' || p.search_text || ' ' LIKE ? THEN 1 ELSE 0 END)")
+            params.append(f"% {term} %")
+        else:
+            score_parts.append("(CASE WHEN p.search_text LIKE ? THEN 1 ELSE 0 END)")
+            params.append(f"%{term}%")
+    score_sql = " + ".join(score_parts)
+    needed = max(1, int(len(terms) * min_coverage + 0.999))  # ceil
+
+    rows = conn.execute(
+        f"""SELECT p.*, rating.avg_rating AS rating_avg, rating.rating_count AS rating_count,
+                   ({score_sql}) AS hits
+            FROM products p {_JOIN_CLAUSE}
+            WHERE p.is_active = 1 AND ({score_sql}) >= ?
+            ORDER BY hits DESC, COALESCE(clicks.count, 0) DESC, p.web_name
+            LIMIT ?""",
+        (*params, *params, needed, limit),
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        product = _serialize_product(row_to_dict(row))
+        product["coverage"] = round(row["hits"] / len(terms), 2)
+        results.append(product)
+    return results
+
+
 @router.get("")
 def list_products(
     q: str = "",
@@ -203,7 +250,7 @@ def get_product(product_id: int):
 
 class ReviewRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
-    comment: str | None = None
+    comment: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/{product_id}/reviews")
@@ -232,9 +279,21 @@ def create_review(product_id: int, body: ReviewRequest, user: dict = Depends(get
         ).fetchone()
         if existing:
             raise HTTPException(status_code=409, detail="You've already reviewed this product")
-        cursor = conn.execute(
-            "INSERT INTO reviews (product_id, user_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?)",
-            (product_id, user["id"], body.rating, body.comment, time.time()),
-        )
+        # Did this reviewer actually buy it? Cancelled orders do not count.
+        purchased = conn.execute(
+            """SELECT 1 FROM order_items oi JOIN orders o ON o.id = oi.order_id
+               WHERE oi.product_id = ? AND o.user_id = ? AND o.status != 'cancelled' LIMIT 1""",
+            (product_id, user["id"]),
+        ).fetchone() is not None
+        try:
+            cursor = conn.execute(
+                "INSERT INTO reviews (product_id, user_id, rating, comment, created_at, verified_purchase) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (product_id, user["id"], body.rating, body.comment, time.time(), int(purchased)),
+            )
+        except sqlite3.IntegrityError:
+            # The unique index is the real guard; the SELECT above is just the
+            # fast path that produces a nicer message.
+            raise HTTPException(status_code=409, detail="You've already reviewed this product")
         row = conn.execute("SELECT reviews.*, users.name AS user_name FROM reviews JOIN users ON users.id = reviews.user_id WHERE reviews.id = ?", (cursor.lastrowid,)).fetchone()
     return row_to_dict(row)

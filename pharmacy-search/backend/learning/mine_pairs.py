@@ -7,12 +7,13 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
+from app import config  # noqa: E402
 
 from app.corrector import normalize  # noqa: E402
 
-QUERY_LOG_PATH = BASE_DIR / "logs" / "queries.jsonl"
-CLICK_LOG_PATH = BASE_DIR / "logs" / "clicks.jsonl"
-CANDIDATES_PATH = BASE_DIR / "learning" / "candidate_pairs.json"
+QUERY_LOG_PATH = config.QUERY_LOG_PATH
+CLICK_LOG_PATH = config.CLICK_LOG_PATH
+CANDIDATES_PATH = config.CANDIDATES_PATH
 
 SESSION_WINDOW_SECONDS = 60
 MAX_EDIT_DISTANCE = 3

@@ -3,9 +3,16 @@ import json
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-CANDIDATES_PATH = BASE_DIR / "candidate_pairs.json"
-APPROVED_PATH = BASE_DIR / "approved_pairs.json"
+BASE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE_DIR))
+
+from app import config  # noqa: E402
+
+# Under PHARMACY_LEARNING_DIR (the mounted volume in production) rather than
+# next to this file inside the image. These are a pharmacist's decisions;
+# they have to outlive a redeploy.
+CANDIDATES_PATH = config.CANDIDATES_PATH
+APPROVED_PATH = config.APPROVED_PATH
 
 
 def load(path):

@@ -25,6 +25,9 @@ def _serialize_line(row: dict) -> dict:
         "quantity": quantity,
         "line_total": price * quantity,
         "saved_for_later": bool(row["saved_for_later"]),
+        # Surfaced per line so the cart can mark which items are the reason
+        # checkout will ask for a prescription.
+        "prescription": bool(row["prescription"]) if row["prescription"] is not None else None,
     }
 
 
@@ -37,11 +40,16 @@ def _compute_discount(subtotal: int, code_row) -> int:
 
 
 def _get_cart(conn, user_id: int) -> dict:
+    # is_active = 1 matters: a soft-deleted product used to keep rendering in
+    # the cart and counting toward the subtotal, and checkout then rejected the
+    # whole order over a line the shopper could not see was the problem.
     rows = conn.execute(
         """SELECT cart_items.*, products.web_name, products.sku, products.price, products.price_unit,
-                  products.price_is_estimated, products.currency, products.stock, products.image_url
+                  products.price_is_estimated, products.currency, products.stock, products.image_url,
+                  products.prescription
            FROM cart_items JOIN products ON products.id = cart_items.product_id
-           WHERE cart_items.user_id = ? ORDER BY cart_items.added_at""",
+           WHERE cart_items.user_id = ? AND products.is_active = 1
+           ORDER BY cart_items.added_at""",
         (user_id,),
     ).fetchall()
 
@@ -66,6 +74,8 @@ def _get_cart(conn, user_id: int) -> dict:
         "discount_amount": discount_amount,
         "total": subtotal - discount_amount,
         "currency": "VND",
+        "requires_prescription": any(l["prescription"] for l in active),
+        "prescription_items": [l["webName"] for l in active if l["prescription"]],
     }
 
 
@@ -83,7 +93,9 @@ class AddItemRequest(BaseModel):
 @router.post("/items", status_code=201)
 def add_item(body: AddItemRequest, user: dict = Depends(get_current_user)):
     with get_connection() as conn:
-        product = conn.execute("SELECT id, stock FROM products WHERE id = ?", (body.product_id,)).fetchone()
+        product = conn.execute(
+            "SELECT id, stock FROM products WHERE id = ? AND is_active = 1", (body.product_id,)
+        ).fetchone()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         if product["stock"] is not None and product["stock"] <= 0:
@@ -162,7 +174,7 @@ def move_to_cart(product_id: int, user: dict = Depends(get_current_user)):
 
 
 class DiscountRequest(BaseModel):
-    code: str
+    code: str = Field(min_length=1, max_length=64)
 
 
 @router.post("/discount")

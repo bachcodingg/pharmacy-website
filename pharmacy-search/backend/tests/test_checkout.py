@@ -13,8 +13,18 @@ def _register_and_headers():
 
 
 def _in_stock_product(min_stock=2):
+    """An ordinary over-the-counter product.
+
+    Explicitly not a prescription item: those take the pharmacist-review path
+    and would fail every assertion in here about going straight to 'placed'.
+    test_prescriptions.py covers that path."""
     data = client.get("/api/products", params={"in_stock": True, "page_size": 200}).json()
-    return next(p for p in data["items"] if p["stock"] >= min_stock)
+    return next(p for p in data["items"] if p["stock"] >= min_stock and not p["prescription"])
+
+
+def _prescription_product(min_stock=2):
+    data = client.get("/api/products", params={"in_stock": True, "page_size": 200}).json()
+    return next(p for p in data["items"] if p["stock"] >= min_stock and p["prescription"])
 
 
 def _address(headers):

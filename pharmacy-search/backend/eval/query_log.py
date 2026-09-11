@@ -15,7 +15,11 @@ from collections import Counter
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-LOG_PATH = BASE_DIR / "logs" / "queries.jsonl"
+sys.path.insert(0, str(BASE_DIR))
+
+from app import config  # noqa: E402
+
+LOG_PATH = config.QUERY_LOG_PATH
 
 
 def run() -> dict:

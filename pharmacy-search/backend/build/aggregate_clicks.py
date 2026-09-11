@@ -5,10 +5,11 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
+from app import config  # noqa: E402
 
 from app.db import get_connection, init_db  # noqa: E402
 
-CLICK_LOG_PATH = BASE_DIR / "logs" / "clicks.jsonl"
+CLICK_LOG_PATH = config.CLICK_LOG_PATH
 
 
 def aggregate():

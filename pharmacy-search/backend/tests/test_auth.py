@@ -99,12 +99,39 @@ def test_forgot_password_does_not_leak_whether_email_exists():
     assert r1.json()["status"] == r2.json()["status"]
 
 
+def _reset_token_from_db(email):
+    """Read the token out of storage instead of the response body.
+
+    The endpoint deliberately does not return it - see F-01. A test that
+    needed it in the response was the reason it stayed there."""
+    from app.db import get_connection
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT t.token FROM password_reset_tokens t JOIN users u ON u.id = t.user_id "
+            "WHERE u.email = ? AND t.used = 0 ORDER BY t.created_at DESC LIMIT 1",
+            (email,),
+        ).fetchone()
+    return row["token"] if row else None
+
+
+def test_forgot_password_never_returns_the_token():
+    email = _unique_email()
+    client.post("/api/auth/register", json={"email": email, "password": "correcthorse", "name": "Alice"})
+    r = client.post("/api/auth/forgot-password", json={"email": email})
+    assert r.status_code == 200
+    assert "dev_only_reset_token" not in r.json()
+    assert r.json() == {"status": "if_the_email_exists_a_reset_link_was_sent"}
+    # The token exists, it is just not handed to the caller.
+    assert _reset_token_from_db(email)
+
+
 def test_forgot_password_then_reset_password_flow():
     email = _unique_email()
     client.post("/api/auth/register", json={"email": email, "password": "correcthorse", "name": "Alice"})
 
-    r = client.post("/api/auth/forgot-password", json={"email": email})
-    token = r.json()["dev_only_reset_token"]
+    client.post("/api/auth/forgot-password", json={"email": email})
+    token = _reset_token_from_db(email)
 
     r = client.post("/api/auth/reset-password", json={"token": token, "new_password": "brandnewpass1"})
     assert r.status_code == 200

@@ -67,5 +67,8 @@ def test_admin_can_demote_someone_else():
     assert r.status_code == 200
     assert r.json()["is_admin"] is False
 
+    # 401, not 403: revoking admin now also drops that account's sessions, so
+    # the old token stops being a session at all rather than becoming a
+    # session without the right. Either way the door is shut.
     r = client.get("/api/admin/users", headers=other_admin_headers)
-    assert r.status_code == 403
+    assert r.status_code == 401

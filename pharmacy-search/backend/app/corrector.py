@@ -48,6 +48,32 @@ def is_keyboard_adjacent(a: str, b: str) -> bool:
     return b in KEYBOARD_NEIGHBORS.get(a, "") or a in KEYBOARD_NEIGHBORS.get(b, "")
 
 
+def char_signature(s: str) -> int:
+    """Bitmask of which distinct characters a string contains.
+
+    Used to skip the edit-distance DP entirely for forms that cannot possibly
+    be within the distance cap. Every distinct character present in one string
+    and absent from the other needs at least one edit operation of its own,
+    and the cheapest operation in this metric is a keyboard-adjacent
+    substitution at SUB_COST_ADJACENT, so
+
+        edit_distance(a, b) >= popcount(sig(a) & ~sig(b)) * SUB_COST_ADJACENT
+
+    and symmetrically. The SUB_COST_ADJACENT factor is the part that is easy
+    to get wrong: dropping it looks like a tighter bound but is simply false -
+    "thuov" -> "thuoc" style adjacent-key slips cost half a point each, so two
+    of them change two character classes for a total distance of 1.0. Pruning
+    on the unscaled count silently loses exactly the typos this corrector
+    exists to catch.
+
+    With the factor, it is a true lower bound rather than a heuristic, so the
+    prune cannot drop a candidate the full scan would have found."""
+    mask = 0
+    for ch in s:
+        mask |= 1 << (ord(ch) & 63)
+    return mask
+
+
 def normalize(s: str) -> str:
     if not s:
         return ""
@@ -404,11 +430,16 @@ class Corrector:
         # Bucket each view separately by length for cheap pruning during the
         # fuzzy fallback. One shared bucket made every lookup walk the other
         # view's forms too, only to discard them.
-        self._by_length: Dict[int, Dict[int, List[str]]] = {}
+        #
+        # Each bucket entry carries the form's character signature, so the
+        # fuzzy scan can reject most of the vocabulary with one integer AND
+        # instead of an O(n*m) dynamic-programming table. Built once here,
+        # where it costs a single pass over ~15k keywords at startup.
+        self._by_length: Dict[int, Dict[int, List[tuple]]] = {}
         for view in (self._telex_index, self._noaccent_index):
-            buckets: Dict[int, List[str]] = {}
+            buckets: Dict[int, List[tuple]] = {}
             for form in view:
-                buckets.setdefault(len(form), []).append(form)
+                buckets.setdefault(len(form), []).append((form, char_signature(form)))
             self._by_length[id(view)] = buckets
 
     def _load_json(self, path: Path) -> dict:
@@ -467,19 +498,32 @@ class Corrector:
             # a coincidence, which is how "c" used to be "corrected" to "1".
             return []
         found: Dict[str, float] = {}  # keyword -> best distance
+        # The cap actually applied further down, hoisted here so the prune can
+        # use the real bound rather than the looser MAX_EDIT_DIST.
+        allowed = min(MAX_EDIT_DIST, max(1, len(token) // 4 + 1))
+        # How many distinct character classes may differ before the cheapest
+        # possible sequence of edits already exceeds the cap.
+        max_class_diff = int(allowed / SUB_COST_ADJACENT)
+        token_sig = char_signature(token)
         for view in (self._telex_index, self._noaccent_index):
             buckets = self._by_length[id(view)]
             for length in range(len(token) - LEN_BUCKET_SLACK, len(token) + LEN_BUCKET_SLACK + 1):
-                for form in buckets.get(length, []):
-                    dist = edit_distance(token, form, max_dist=MAX_EDIT_DIST)
-                    if dist > MAX_EDIT_DIST:
+                for form, form_sig in buckets.get(length, []):
+                    # Exact lower bound on the distance, computed with two
+                    # integer operations. Everything it rejects the DP would
+                    # have rejected too, several hundred cell updates later.
+                    if (token_sig & ~form_sig).bit_count() > max_class_diff:
+                        continue
+                    if (form_sig & ~token_sig).bit_count() > max_class_diff:
+                        continue
+                    dist = edit_distance(token, form, max_dist=allowed)
+                    if dist > allowed:
                         continue
                     for kw in view[form]:
                         if kw not in found or dist < found[kw]:
                             found[kw] = dist
         candidates = []
         for kw, dist in found.items():
-            allowed = max(1, len(token) // 4 + 1)
             if dist > allowed:
                 continue
             similarity = max(0.0, 1 - dist / max(len(token), 1))
@@ -771,10 +815,11 @@ def get_corrector() -> "Corrector":
     than building it per request or per module."""
     global _shared
     if _shared is None:
-        base = Path(__file__).resolve().parents[1]
+        from app import config
+
         _shared = Corrector(
-            base / "index" / "keywords.json",
-            base / "index" / "nearmiss.json",
-            base / "data" / "products.jsonl",
+            config.KEYWORDS_PATH,
+            config.NEARMISS_PATH,
+            config.PRODUCTS_JSONL_PATH,
         )
     return _shared

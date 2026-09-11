@@ -230,7 +230,9 @@ def build_table(keywords: dict, excluded_rules=frozenset(), learned_pairs=()) ->
 
 
 def load_approved_pairs():
-    path = BASE_DIR / "learning" / "approved_pairs.json"
+    from app import config
+
+    path = config.APPROVED_PATH
     if not path.exists():
         return []
     return json.loads(path.read_text(encoding="utf-8"))

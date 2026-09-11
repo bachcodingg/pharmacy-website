@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth import get_current_admin
-from app.db import get_connection, row_to_dict
+from app.db import get_connection, record_admin_action, row_to_dict
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
@@ -42,6 +42,12 @@ def set_admin(user_id: int, body: SetAdminRequest, admin: dict = Depends(get_cur
         if not existing:
             raise HTTPException(status_code=404, detail="User not found")
         conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(body.is_admin), user_id))
+        record_admin_action(conn, admin["id"], "admin_grant" if body.is_admin else "admin_revoke",
+                            "user", user_id)
+        if not body.is_admin:
+            # Losing admin has to take effect now, not whenever the demoted
+            # account's session happens to expire.
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         row = conn.execute(
             """SELECT users.*, COUNT(orders.id) AS order_count
                FROM users LEFT JOIN orders ON orders.user_id = users.id

@@ -307,6 +307,21 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .product-card:hover { border-color: var(--brand); }
 .product-card-clicked { background: var(--brand-tint); border-color: var(--brand); }
 .product-name { flex: 1; line-height: 1.4; }
+
+/* Search results carry an id now, so the whole card is a link into the
+   product page rather than a dead end that only logged a click. */
+.product-card { padding: 0; }
+.product-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  color: inherit;
+  text-decoration: none;
+}
+.product-link:hover { text-decoration: none; }
+.product-price { flex-shrink: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
 .product-category {
   flex-shrink: 0;
   font-size: 10.5px;
@@ -370,6 +385,19 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
 .status-protected { background: var(--brand-tint); color: var(--brand-dark); }
 .status-ambiguous, .status-did_you_mean, .status-accent_ambiguous { background: var(--dym-bg); color: var(--dym-text); }
 .status-unknown { background: var(--none-bg); color: var(--none-text); }
+.status-awaiting_prescription, .status-pending_review { background: var(--dym-bg); color: var(--dym-text); }
+.status-approved, .status-shipped, .status-delivered { background: var(--auto-bg); color: var(--auto-text); }
+.status-rejected, .status-cancelled { background: var(--none-bg); color: var(--none-text); }
+
+/* Prescription gate: the checkout step that collects a reference, and the
+   admin queue where a pharmacist approves or rejects it. */
+.checkout-rx {
+  border-left: 3px solid var(--dym-border);
+  background: var(--dym-bg);
+}
+.checkout-rx h2 { color: var(--dym-text); }
+.checkout-rx input { width: 100%; }
+.rx-review { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 
 .loading, .empty-state {
   padding: 32px 16px;

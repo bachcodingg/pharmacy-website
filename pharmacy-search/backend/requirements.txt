@@ -1,5 +1,9 @@
-fastapi
-uvicorn[standard]
-pytest
-httpx
-email-validator
+# Pinned deliberately. These were five bare package names, so "reproducible
+# build" meant "whatever PyPI served the day the image happened to be built" -
+# a FastAPI or Pydantic major release could break the deployment with no
+# change to this repository. Bump these on purpose, with the test suite as
+# the gate.
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.3
+email-validator==2.3.0

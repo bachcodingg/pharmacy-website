@@ -28,7 +28,8 @@ def _get_wishlist(conn, user_id: int) -> list:
         """SELECT wishlist_items.*, products.web_name, products.sku, products.price, products.price_unit,
                   products.price_is_estimated, products.currency, products.stock, products.image_url
            FROM wishlist_items JOIN products ON products.id = wishlist_items.product_id
-           WHERE wishlist_items.user_id = ? ORDER BY wishlist_items.added_at DESC""",
+           WHERE wishlist_items.user_id = ? AND products.is_active = 1
+           ORDER BY wishlist_items.added_at DESC""",
         (user_id,),
     ).fetchall()
     return [_serialize(row_to_dict(r)) for r in rows]

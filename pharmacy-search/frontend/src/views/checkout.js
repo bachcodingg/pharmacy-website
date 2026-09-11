@@ -25,7 +25,28 @@ export async function render(root) {
     addressId: addresses.find((a) => a.is_default)?.id ?? addresses[0].id,
     shippingMethod: Object.keys(options.shipping_methods)[0],
     paymentMethod: 'cod',
+    prescriptionReference: '',
   };
+
+  // Prescription-only items do not block the cart, but they do hold the
+  // order: it is created in 'awaiting_prescription' and a pharmacist has to
+  // review it before anything ships.
+  const rxSection = cart.requires_prescription
+    ? `
+        <section class="checkout-section checkout-rx">
+          <h2>Prescription required</h2>
+          <p class="hint-text">
+            These items are prescription-only (thuốc kê đơn):
+            <strong>${cart.prescription_items.map(escapeHtml).join(', ')}</strong>.
+            Enter the reference number from your prescription. A pharmacist reviews
+            every order containing them before it ships — your order will be placed
+            and held until that review is done.
+          </p>
+          <label>Prescription reference
+            <input type="text" id="rx-reference" maxlength="200" placeholder="e.g. clinic document number" required />
+          </label>
+        </section>`
+    : '';
 
   root.innerHTML = `
     <h1 class="page-title">Checkout</h1>
@@ -62,6 +83,8 @@ export async function render(root) {
           </div>
         </section>
 
+        ${rxSection}
+
         <section class="checkout-section">
           <h2>Payment method</h2>
           <div class="radio-list">
@@ -87,7 +110,7 @@ export async function render(root) {
         <div class="summary-row" id="shipping-fee-row"></div>
         <div class="summary-row summary-total" id="grand-total-row"></div>
         <div id="place-order-error" class="form-error"></div>
-        <button type="button" id="place-order-btn">Place order</button>
+        <button type="button" id="place-order-btn">${cart.requires_prescription ? 'Place order for review' : 'Place order'}</button>
       </aside>
     </div>
   `;
@@ -107,6 +130,7 @@ export async function render(root) {
   root.querySelectorAll('input[name="address"]').forEach((r) => r.addEventListener('change', (e) => (state.addressId = parseInt(e.target.value, 10))));
   root.querySelectorAll('input[name="shipping"]').forEach((r) => r.addEventListener('change', (e) => { state.shippingMethod = e.target.value; updateTotals(); }));
   root.querySelectorAll('input[name="payment"]').forEach((r) => r.addEventListener('change', (e) => (state.paymentMethod = e.target.value)));
+  root.querySelector('#rx-reference')?.addEventListener('input', (e) => (state.prescriptionReference = e.target.value.trim()));
 
   root.querySelector('#place-order-btn').addEventListener('click', async () => {
     const btn = root.querySelector('#place-order-btn');
@@ -115,7 +139,12 @@ export async function render(root) {
     btn.disabled = true;
     btn.textContent = 'Placing order…';
     try {
-      const order = await placeOrder({ addressId: state.addressId, shippingMethod: state.shippingMethod, paymentMethod: state.paymentMethod });
+      const order = await placeOrder({
+        addressId: state.addressId,
+        shippingMethod: state.shippingMethod,
+        paymentMethod: state.paymentMethod,
+        prescriptionReference: state.prescriptionReference,
+      });
       refreshNavBadges();
       navigate(`#/order/${order.id}`);
     } catch (err) {

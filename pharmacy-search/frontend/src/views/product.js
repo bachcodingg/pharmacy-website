@@ -66,7 +66,7 @@ export async function render(root, params) {
   reviewList.innerHTML = reviews.length
     ? reviews.map((r) => `
       <div class="review">
-        <div class="review-head">${starRating(r.rating)}<span class="review-author">${escapeHtml(r.user_name)}</span></div>
+        <div class="review-head">${starRating(r.rating)}<span class="review-author">${escapeHtml(r.user_name)}</span>${r.verified_purchase ? '<span class="estimate-tag">verified purchase</span>' : ''}</div>
         ${r.comment ? `<p class="review-comment">${escapeHtml(r.comment)}</p>` : ''}
       </div>`).join('')
     : '<div class="empty-state">No reviews yet.</div>';

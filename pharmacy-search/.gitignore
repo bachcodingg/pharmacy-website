@@ -1,7 +1,26 @@
+# Derived search index - rebuilt from the committed catalogue by
+# build/build_lexicon.py and build/build_nearmiss.py (the Dockerfile and CI
+# both do this).
 backend/index/
-backend/logs/
-backend/learning/candidate_pairs.json
-backend/learning/approved_pairs.json
-backend/data/app.db
+
+# Runtime state. Everything under data/ except the committed product
+# catalogue is generated or user-created: the database, the query and click
+# logs, and the pharmacist's approved correction pairs. In production these
+# live on the mounted volume instead - see .env.example.
+backend/data/*
+!backend/data/products.jsonl
+
+# Local environment
+.env
+.venv/
+backend/.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Server logs from a local run
+backend/uvicorn_*.log
+
+# Frontend build output
+frontend/dist/
+node_modules/

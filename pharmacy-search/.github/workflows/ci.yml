@@ -1,0 +1,79 @@
+name: CI
+
+# The 137-test suite used to run only when someone remembered to run it.
+# Now it is a gate: nothing merges to main without it passing.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pharmacy-search/backend/requirements-dev.txt
+      - name: Install dependencies
+        working-directory: pharmacy-search/backend
+        run: pip install -r requirements-dev.txt
+      - name: Build the search index
+        working-directory: pharmacy-search/backend
+        # index/ is a derived artifact and is gitignored, so CI rebuilds it
+        # from the committed catalogue exactly as the Dockerfile does.
+        run: |
+          python build/build_lexicon.py
+          python build/build_nearmiss.py
+      - name: Run tests
+        working-directory: pharmacy-search/backend
+        run: python -m pytest tests -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: pharmacy-search/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: pharmacy-search/frontend
+        run: npm ci
+      - name: Build
+        working-directory: pharmacy-search/frontend
+        run: npm run build
+      - name: Audit dependencies
+        working-directory: pharmacy-search/frontend
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  image:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        working-directory: pharmacy-search
+        run: docker build -t pharmacy-search:ci .
+
+  deploy:
+    name: Deploy to Fly
+    # Only from main, and only once everything above is green.
+    needs: [backend, frontend, image]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency: deploy-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        working-directory: pharmacy-search
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

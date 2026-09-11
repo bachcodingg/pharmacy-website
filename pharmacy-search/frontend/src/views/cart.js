@@ -130,6 +130,7 @@ function renderLines(container, lines, { emptyText, title, showSaveForLater, sho
       <div class="cart-line">
         ${productThumbHtml(item.imageUrl, item.webName)}
         <a href="#/product/${item.product_id}" class="cart-line-name">${escapeHtml(item.webName)}</a>
+        ${item.prescription ? '<span class="rx-tag">Prescription only</span>' : ''}
         <div class="cart-line-price">
           ${formatVnd(item.price, item.price_unit)}
           ${item.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}

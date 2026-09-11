@@ -1,5 +1,5 @@
 import { search, suggest, logClick } from '../api.js';
-import { ICONS, escapeHtml, productThumbHtml } from '../shared.js';
+import { ICONS, escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
 
 const PRESETS = [
   { label: 'etrogen', hint: 'typo → auto-correct' },
@@ -99,10 +99,17 @@ export function render(root) {
     }
     results.innerHTML = `<ul class="products">${products
       .map(
-        (p) => `<li class="product-card" data-query="${escapeHtml(result.query)}" data-product="${escapeHtml(p.webName)}" tabindex="0" role="button">
-          ${productThumbHtml(p.imageUrl, p.webName)}
-          <span class="product-name">${escapeHtml(p.webName)}</span>
-          ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
+        // Results now come from the product table rather than a snapshot of
+        // it, so each one has an id and a price and can be opened, instead of
+        // being a dead end that only logged a click.
+        (p) => `<li class="product-card">
+          <a class="product-link" href="#/product/${p.id}" data-query="${escapeHtml(result.query)}" data-product="${escapeHtml(p.webName)}" data-product-id="${p.id}">
+            ${productThumbHtml(p.imageUrl, p.webName)}
+            <span class="product-name">${escapeHtml(p.webName)}</span>
+            ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
+            <span class="product-price">${p.price != null ? formatVnd(p.price) : ''}${p.price_is_estimated ? ' <span class="estimate-tag">est.</span>' : ''}</span>
+            ${p.prescription ? '<span class="rx-tag">Prescription only</span>' : ''}
+          </a>
         </li>`
       )
       .join('')}</ul>`;
@@ -184,10 +191,12 @@ export function render(root) {
       autocomplete.hidden = true;
     }
 
-    const productCard = event.target.closest('.product-card');
-    if (productCard) {
-      logClick(productCard.dataset.query, productCard.dataset.product);
-      productCard.classList.add('product-card-clicked');
+    const productLink = event.target.closest('.product-link');
+    if (productLink) {
+      // Logged, then the href is allowed to navigate - the click log is what
+      // feeds the learning loop, so it still has to fire.
+      logClick(productLink.dataset.query, productLink.dataset.product);
+      productLink.closest('.product-card')?.classList.add('product-card-clicked');
       return;
     }
 
