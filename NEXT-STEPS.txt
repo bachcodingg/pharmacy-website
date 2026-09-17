@@ -1,0 +1,338 @@
+================================================================================
+PHARMACY SEARCH - HANDOFF INSTRUCTIONS FOR CLAUDE
+================================================================================
+Written 2026-09-11, at the end of a session that audited this project against
+Pharmacy-Search-Audit.pdf (15 findings, F-01..F-15), implemented most of those
+fixes, and found 12 more issues by reading the code (N-01..N-12).
+
+Read this whole file before touching anything. Run the tasks in order.
+
+Repo root: D:\fpt      Project: D:\fpt\pharmacy-search      Branch: main
+
+
+--------------------------------------------------------------------------------
+STATE OF THE TREE - READ THIS FIRST
+--------------------------------------------------------------------------------
+*** NOTHING IS COMMITTED. *** Everything described below is uncommitted work in
+the working tree. Do not run `git checkout`, `git stash`, or `git reset` on this
+repo before reading TASK 0.
+
+Last verified full test run: 157 passed, 1 xfailed.
+(It was 121 passed, 1 xfailed before the session.)
+The frontend builds clean via `npm run build`.
+
+BUT: app/corrector.py was changed AFTER that test run and has NOT been
+validated. That is TASK 1, and it is the highest priority.
+
+
+--------------------------------------------------------------------------------
+TASK 0 - ORIENT (do this first, ~2 minutes)
+--------------------------------------------------------------------------------
+Run these and read the output before editing anything:
+
+    cd /d/fpt
+    git status --short
+    git diff --stat
+
+Expect ~32 modified files, plus these new untracked files:
+
+    LICENSE
+    NEXT-STEPS.txt                                    (this file)
+    pharmacy-search/README.md
+    pharmacy-search/.env.example
+    pharmacy-search/.github/workflows/ci.yml
+    pharmacy-search/backend/app/config.py
+    pharmacy-search/backend/app/ratelimit.py
+    pharmacy-search/backend/requirements-dev.txt
+    pharmacy-search/backend/tests/test_prescriptions.py
+    pharmacy-search/backend/tests/test_concurrency.py
+    pharmacy-search/backend/tests/test_ratelimit.py
+    pharmacy-search/backend/tests/test_search_catalog.py
+    pharmacy-search/backend/tests/test_session_security.py
+
+
+--------------------------------------------------------------------------------
+TASK 1 - VALIDATE THE CORRECTOR CHANGE  (HIGHEST PRIORITY, UNFINISHED)
+--------------------------------------------------------------------------------
+WHAT WAS DONE
+app/corrector.py `_fuzzy_lookup` was scanning every vocabulary form in the +/-2
+length buckets across two views, running an O(n*m) edit-distance DP on each.
+That is audit finding F-08 (search p95 far over its 50ms budget).
+
+A character-signature prune was added. `char_signature()` builds a bitmask of
+which characters a string contains, and the scan now skips any form whose
+signature differs from the query's by more character classes than the distance
+cap could possibly cover - two integer operations instead of a DP table.
+
+THE SUBTLE PART - DO NOT "SIMPLIFY" THIS
+The bound is scaled by SUB_COST_ADJACENT (0.5):
+
+    edit_distance(a,b) >= popcount(sig(a) & ~sig(b)) * SUB_COST_ADJACENT
+
+Dropping that factor looks like a tighter, cleaner bound. It is simply false.
+Keyboard-adjacent substitutions cost 0.5 each, so two of them change two
+character classes for a total distance of only 1.0. I made exactly this mistake
+mid-session and measured the damage: held-out top-1 fell from 0.930 to 0.926 -
+it silently loses the very typos this corrector exists to catch. The scaled
+(correct) version is what is in the tree now. Leave the factor alone.
+
+MEASUREMENTS SO FAR (all on this machine; the PDF's numbers came from another
+machine, so compare against these, not against the PDF)
+
+    original code           p95 1349 ms   (999-query harness)
+    unscaled/wrong bound    p95 1.55 ms   but top-1 0.926  <- LOST ACCURACY
+    scaled/correct bound    ~128 ms for "etrogen" (single-query spot check)
+                            ACCURACY NOT YET MEASURED      <- this is the gap
+
+    baseline accuracy to match:
+        top1_accuracy 0.930   top3_recall 0.938   no_candidates_rate 0.040
+
+WHAT YOU MUST DO
+
+1a. Run the held-out harness and compare against that baseline. It takes
+    several minutes - run it in the background and wait for the completion
+    notification rather than polling it.
+
+        cd /d/fpt/pharmacy-search/backend
+        python eval/held_out.py
+
+    PASS CRITERIA: top1_accuracy >= 0.930 AND no_candidates_rate <= 0.040,
+    i.e. identical to baseline. The prune is meant to be an exact lower bound,
+    so ANY accuracy change means the bound is wrong. Debug it; do not accept it.
+    Fastest way to isolate a regression: temporarily set
+    `max_class_diff = 999` (which disables the prune) and confirm the numbers
+    return to baseline.
+
+1b. Run the full latency harness for a real p95:
+
+        python eval/latency.py
+
+    Record the number. Expect roughly 100-150 ms p95 - about 10x better than
+    the 1349 ms baseline, but still over the 50 ms budget.
+
+1c. Run the full suite:
+
+        python -m pytest tests -q
+
+    Expect 157 passed, 1 xfailed. The xfail is
+    tests/test_core.py::test_correction_latency_budget, marked strict=True.
+    It still xfails with the current prune (confirmed: "etrogen" is ~128 ms,
+    over the 50 ms budget), so the suite stays green.
+
+    IMPORTANT: if you later make the corrector fast enough, that test will
+    XPASS, and strict=True turns an unexpected pass into a FAILURE. That is
+    deliberate - it is how the suite tells you the gap closed. At that point,
+    convert it from an xfail into a normal passing assertion and say so.
+
+
+--------------------------------------------------------------------------------
+TASK 2 - FINISH F-08 PROPERLY  (optional; the interesting one)
+--------------------------------------------------------------------------------
+Only after Task 1 passes. Going from ~128 ms to under the 50 ms budget needs
+real candidate generation, not just a better filter. The audit suggests a
+SymSpell deletion index or a BK-tree.
+
+Recommended: SymSpell-style deletion neighbourhood.
+  - In Corrector.__init__, for each form in the telex and no-accent views,
+    generate every string obtainable by deleting up to 2 characters, and map
+    each to the forms that produced it.
+  - At query time, do the same for the token and look up the union.
+  - Run the real edit_distance only on that shortlist.
+
+RISK AND HOW TO HANDLE IT: MAX_EDIT_DIST is 3, so a depth-2 deletion index can
+miss distance-3 candidates and WILL cost recall. Measure it. If top-1 drops
+below 0.930, either raise the deletion depth (memory cost) or keep the
+signature prune as a fallback full scan for tokens that find nothing.
+
+Whatever you try, re-run eval/held_out.py every single time and treat 0.930
+top-1 as a hard floor. Accuracy is the product here; latency is second.
+
+Cheaper and also worth doing: an LRU cache on Corrector.correct(). The index is
+immutable at runtime, so there is nothing to invalidate. It will not move the
+benchmark (999 distinct queries) but real traffic repeats heavily.
+
+
+--------------------------------------------------------------------------------
+TASK 3 - COMMIT THE WORK
+--------------------------------------------------------------------------------
+Do this once Task 1 passes. Do NOT squash into one commit - these changes are
+independent and a reviewer should be able to read them separately. Suggested
+split, in this order:
+
+  1. "Add env-driven config and move mutable state onto the volume"
+     app/config.py, db.py paths, learning/*, eval/query_log.py,
+     build/aggregate_clicks.py, build/build_nearmiss.py, admin_reports.py,
+     Dockerfile, fly.toml, .gitignore, .env.example            [F-02, F-12]
+
+  2. "Stop returning the password reset token; invalidate sessions"
+     app/auth.py, tests/test_auth.py, tests/test_session_security.py
+                                                               [F-01, N-06]
+
+  3. "Add rate limiting and input caps to unauthenticated endpoints"
+     app/ratelimit.py, main.py, tests/test_ratelimit.py, conftest.py
+                                                               [F-05, N-03]
+
+  4. "Hold prescription-only orders for pharmacist review"
+     db.py schema, checkout.py, cart.py, admin_orders.py, frontend views,
+     tests/test_prescriptions.py                                     [F-03]
+
+  5. "Make the stock decrement the stock check"
+     checkout.py, db.py write_transaction, admin_orders.py,
+     tests/test_concurrency.py                                 [F-06, N-02]
+
+  6. "Answer search from the product table, not a snapshot"
+     catalog.py search_catalog, main.py, frontend search.js,
+     tests/test_search_catalog.py                                    [N-01]
+
+  7. "Add indexes, numbered migrations and an admin audit log"
+     db.py, inventory.py, admin_users.py, admin_corrections.py
+                                                         [F-07, F-09, N-09]
+
+  8. "Add security headers, CI, README, licence and pinned dependencies"
+     main.py middleware, .github/workflows/ci.yml, README.md, LICENSE,
+     requirements.txt, requirements-dev.txt                    [F-10, N-05]
+
+  9. The corrector prune - only once Task 1 validates it. Put the measured
+     before/after numbers in the commit message.                     [F-08]
+
+Commit message trailers for this repo:
+
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01DMF5bCmfCN6gyuCjLdLiLJ
+
+
+--------------------------------------------------------------------------------
+TASK 4 - WHAT IS STILL NOT DONE
+--------------------------------------------------------------------------------
+In the order I would do them.
+
+F-13  NO BACKUPS. The single Fly volume holds every user, order and review, and
+      is not replicated. Add Litestream as a sidecar streaming the SQLite WAL
+      to S3 or Cloudflare R2, then actually rehearse a restore into staging.
+      This is the largest remaining operational risk: one corrupted write, one
+      `fly volumes destroy`, and there is no recovery path.
+
+F-04  SESSION TOKENS IN localStorage. Partly mitigated this session: TTL cut
+      from 30 days to 7, sessions invalidated on password change and reset,
+      expired rows purged, CSP added. Remaining work is moving to an
+      httpOnly; Secure; SameSite=Lax cookie plus CSRF protection on
+      state-changing requests.
+      NOTE: the frontend escapes consistently across all 15 view files, so
+      there is no known injection path today. This is defence in depth, not an
+      open hole - do not describe it as one.
+
+F-14  HASH-ROUTER SPA IS INVISIBLE TO SEARCH ENGINES. Move to History API paths
+      with a server-side SPA fallback (main.py currently relies on the hash
+      router and explains that in a comment - update the comment too), add
+      per-product <title>/meta/Open Graph tags, Product JSON-LD, sitemap.xml.
+
+F-15  UI IS ENGLISH, CATALOGUE IS VIETNAMESE. Extract strings into a locale
+      file, ship vi-VN first, and format money as 145.000 d via
+      Intl.NumberFormat instead of English separators. The users who need
+      Telex-tolerant search are the ones reading Vietnamese.
+
+F-11  IMAGES HOTLINK cdn.nhathuoclongchau.com.vn. Mirror to your own object
+      storage behind a CDN and serve resized WebP/AVIF. The CSP in main.py
+      currently allows that CDN in img-src - tighten it when you migrate.
+
+F-07b FTS5. Indexes were added, but catalogue search still uses LIKE '%term%',
+      which no B-tree index can serve. Move to SQLite FTS5 over search_text.
+
+F-12b POSTGRES OR LITEFS. Still one machine. min_machines_running is now 1 and
+      a healthcheck exists, but SQLite on a single volume still forecloses
+      zero-downtime deploys and redundancy.
+
+N-07  USER ENUMERATION via /api/auth/register returning 409 "An account with
+      this email already exists". Deliberately left alone: it is a genuine
+      tradeoff against registration UX, and rate limiting mitigates it.
+      Revisit only alongside email verification.
+
+N-08  REVIEWS ARE OPEN TO ANY SIGNED-IN ACCOUNT. A verified_purchase flag is
+      now recorded and displayed, but the gate is not closed. Closing it is a
+      one-line policy change in catalog.create_review - the data is already
+      there. It would break ~6 tests in test_catalog.py that review without
+      buying; update those tests rather than weakening the rule.
+
+ALSO NOT DONE (from the audit's operations sections, all still valid):
+  - Staging environment as a second Fly app (audit section 05, step 01).
+  - Sentry for exceptions, plus an external uptime monitor.
+  - Structured JSON logs to stdout for a log drain.
+  - Real payments (VNPay/Momo). checkout.py is honest that only COD works.
+  - Transactional email. Password reset currently records a token that only an
+    operator reading the database can retrieve. That is the correct failure
+    mode, but it is NOT a working reset flow. Wire up Resend/Postmark/SES.
+  - eval/human_typed.tsv is still just a header row. Sit ten people down, have
+    them type 100 product names quickly, record it. Until that file has rows,
+    92.6% is a lower-bound proxy, not user-facing accuracy.
+  - Session-linked query logs, so correction precision (the harness's own
+    metric #1) becomes computable. main.py already logs session_id; it needs
+    an outcome field linking consecutive searches.
+
+
+--------------------------------------------------------------------------------
+GOTCHAS - THINGS THAT WILL BITE YOU
+--------------------------------------------------------------------------------
+* tests/conftest.py sets PHARMACY_RATE_LIMIT_ENABLED=0, because the suite
+  registers dozens of accounts from one client and would otherwise trip its own
+  limiter. tests/test_ratelimit.py re-enables it with a monkeypatch fixture. If
+  you add a test that needs limiting on, copy that fixture pattern.
+
+* conftest also redirects PHARMACY_DATA_DIR, PHARMACY_SEARCH_DB,
+  PHARMACY_LOG_DIR and PHARMACY_LEARNING_DIR into a temp directory. Never point
+  tests at backend/data.
+
+* tests/test_checkout.py::_in_stock_product deliberately filters to
+  NON-prescription products. If you "simplify" that filter away, every checkout
+  test breaks, because Rx items now go to awaiting_prescription instead of
+  placed. There is a _prescription_product helper right next to it.
+
+* PHARMACY_EXPOSE_RESET_TOKEN puts the reset token back into the HTTP response.
+  It defaults OFF and must NEVER be set in a deployed environment. Tests read
+  the token from the database instead - see _reset_token_from_db in
+  tests/test_auth.py.
+
+* Schema changes go in db.py MIGRATIONS as a new numbered entry. Do NOT rely on
+  adding a column to the CREATE TABLE in SCHEMA: that only affects databases
+  created afterwards, which is exactly the drift the migration table exists to
+  prevent. I made that mistake once this session (a UNIQUE constraint on
+  reviews) and fixed it by moving it to a CREATE UNIQUE INDEX in INDEXES.
+
+* SEARCH_TEXT_FOLD_VERSION in db.py must be bumped whenever search_key()
+  changes how names are folded, or existing rows keep a stale search_text.
+
+* Local state moved. backend/logs/ and backend/learning/*.json now live under
+  backend/data/logs/ and backend/data/learning/. The existing files were moved
+  there during the session, not deleted.
+
+* eval/held_out.py and eval/latency.py construct Corrector() directly rather
+  than through get_corrector(), so they are unaffected by the config path
+  changes. That is also why they are a clean measurement of corrector changes.
+
+* The eval harness is slow (several minutes). Run it in the background and wait
+  for the completion notification instead of polling it.
+
+
+--------------------------------------------------------------------------------
+VERIFY EVERYTHING STILL WORKS
+--------------------------------------------------------------------------------
+    cd /d/fpt/pharmacy-search/backend
+    python -m pytest tests -q            # expect 157 passed, 1 xfailed
+    python eval/held_out.py              # expect top1 >= 0.930
+    python eval/latency.py               # record p95
+
+    cd /d/fpt/pharmacy-search/frontend
+    npm run build                        # must succeed
+
+    cd /d/fpt/pharmacy-search
+    docker build -t pharmacy-search:local .
+
+The docker build has NOT been verified since the Dockerfile was rewritten this
+session (npm ci, non-root user, split requirements, HEALTHCHECK). Run it before
+deploying anything.
+
+
+--------------------------------------------------------------------------------
+ONE LINE TO PASTE TO CLAUDE NEXT TIME
+--------------------------------------------------------------------------------
+    Read NEXT-STEPS.txt in this folder, then do Task 1 and Task 3.
+================================================================================

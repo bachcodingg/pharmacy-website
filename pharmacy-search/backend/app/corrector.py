@@ -1,7 +1,10 @@
+import copy
 import json
 import re
+import threading
 import time
 import unicodedata
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -18,6 +21,18 @@ MIN_FUZZY_LEN = 4  # below this a token has no shape to match on - "c" is not a 
 # or more edits still get offered, never assumed: "panadol" -> "panactol" is a
 # different drug, and in a pharmacy that has to be the user's call.
 FUZZY_AUTO_MAX_DIST = 1.0
+
+# How many resolved queries to keep. Corrections are pure - the lexicon is
+# immutable once loaded - so an entry can never go stale and there is nothing
+# to invalidate. A miss that falls through to the fuzzy scan costs ~100ms,
+# which is what makes even a modest cache worth its memory: real traffic is
+# dominated by a small head of repeated queries, so the expensive path runs
+# once per distinct query rather than once per request.
+#
+# This will NOT move eval/latency.py: that harness issues 999 distinct queries
+# and so hits the cache exactly zero times by construction. It is a production
+# latency win, not a benchmark one, and the benchmark is right to ignore it.
+CORRECTION_CACHE_SIZE = 2048
 
 # Longest keyword phrase we try to match as a unit. build_lexicon.py emits
 # n-grams up to 4 tokens, and two thirds of the vocabulary is multi-word, so
@@ -442,6 +457,15 @@ class Corrector:
                 buckets.setdefault(len(form), []).append((form, char_signature(form)))
             self._by_length[id(view)] = buckets
 
+        # Keyed on the *normalized* query, so "Bàn Chải" and "ban  chai" share
+        # one entry. The lock matches ratelimit.py's idiom: FastAPI runs sync
+        # endpoints on a threadpool, and move_to_end/popitem are not atomic
+        # against each other.
+        self._cache: "OrderedDict[str, dict]" = OrderedDict()
+        self._cache_lock = threading.Lock()
+        self._cache_hits = 0
+        self._cache_misses = 0
+
     def _load_json(self, path: Path) -> dict:
         if not path.exists():
             return {}
@@ -707,9 +731,46 @@ class Corrector:
 
     def correct(self, query: str) -> dict:
         start = time.perf_counter()
-        result = self._correct(query)
+        key = normalize(query)
+
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._cache.move_to_end(key)
+                self._cache_hits += 1
+
+        if cached is None:
+            cached = self._correct(query)
+            with self._cache_lock:
+                self._cache_misses += 1
+                self._cache[key] = cached
+                self._cache.move_to_end(key)
+                while len(self._cache) > CORRECTION_CACHE_SIZE:
+                    self._cache.popitem(last=False)  # evict least-recently-used
+
+        # Hand out a deep copy. Callers treat the result as their own - main.py
+        # logs it and the API layer reshapes it - and a shallow copy would let
+        # a caller mutate the nested token dicts straight through into the
+        # cached entry, quietly poisoning every later hit on that query.
+        result = copy.deepcopy(cached)
+        # `query` is the one field derived from the raw string rather than the
+        # normalized key, so it has to be restored per call or a hit on
+        # "Bàn Chải" would echo back whatever spelling populated the entry.
+        result["query"] = query
         result["latency_ms"] = round((time.perf_counter() - start) * 1000, 3)
         return result
+
+    def cache_stats(self) -> dict:
+        """Hit/miss counters, for checking the cache earns its keep in prod."""
+        with self._cache_lock:
+            total = self._cache_hits + self._cache_misses
+            return {
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+                "size": len(self._cache),
+                "capacity": CORRECTION_CACHE_SIZE,
+                "hit_rate": round(self._cache_hits / total, 3) if total else 0.0,
+            }
 
     def _resolve_tokens(self, tokens: List[str]) -> List[dict]:
         """Greedy longest-match: try the longest phrase first, fall back to a

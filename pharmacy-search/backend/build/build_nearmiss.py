@@ -225,7 +225,21 @@ def build_table(keywords: dict, excluded_rules=frozenset(), learned_pairs=()) ->
     for variant, items in table.items():
         if variant in keywords:
             continue
-        out[variant] = {"c": items[:3], "amb": len({item["keyword"] for item in items}) > 1}
+        # Rank before truncating. The generators above return *sets* of
+        # (variant, rule) tuples, so the order items land in `table` follows
+        # set iteration order over strings - which Python randomizes per
+        # process via PYTHONHASHSEED. A plain items[:3] therefore kept three
+        # arbitrary candidates that changed from one build to the next: the
+        # shipped nearmiss.json was not reproducible, and eval/held_out.py
+        # swung ~0.012 on top-1 accuracy between runs of identical code,
+        # which is wide enough to swamp the effect of a real change.
+        #
+        # Sorting on a total order (weight, then keyword, then rule) fixes
+        # both problems at once: the build is reproducible, and the three
+        # candidates kept are the highest-weighted ones rather than whichever
+        # three the hash seed happened to surface.
+        ranked = sorted(items, key=lambda i: (-i["weight"], i["keyword"], i["rule"]))
+        out[variant] = {"c": ranked[:3], "amb": len({item["keyword"] for item in items}) > 1}
     return out
 
 

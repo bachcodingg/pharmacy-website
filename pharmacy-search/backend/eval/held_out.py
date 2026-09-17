@@ -42,17 +42,27 @@ HELD_OUT_GENERATORS = {
 
 
 def generate_held_out_cases(keywords: dict):
-    """(typo, expected_keyword, rule) triples produced ONLY by the held-out rules."""
+    """(typo, expected_keyword, rule) triples produced ONLY by the held-out rules.
+
+    Returned in a canonical sorted order, which the sampling below depends on.
+    HELD_OUT_RULES is a set and every generator returns a set, so the order
+    cases were appended in followed set iteration over strings - randomized per
+    process by PYTHONHASHSEED. random.sample() with a fixed seed then picked
+    the same *indices* out of a differently ordered list, i.e. a different 500
+    test cases on every run. That is what made this harness swing ~0.012 on
+    top-1 accuracy between runs of identical code, which is wide enough to hide
+    the effect of a real change. Sorting pins the sample.
+    """
     cases = []
     for keyword in keywords:
         word = normalize(keyword)
         if not word or len(word) <= 2 or " " in word:
             continue
-        for rule_name in HELD_OUT_RULES:
-            for variant, rule in HELD_OUT_GENERATORS[rule_name](word):
+        for rule_name in sorted(HELD_OUT_RULES):
+            for variant, rule in sorted(HELD_OUT_GENERATORS[rule_name](word)):
                 if variant and variant != word and variant not in keywords:
                     cases.append((variant, keyword, rule))
-    return cases
+    return sorted(cases)
 
 
 def run(sample_limit: int = 500) -> dict:
