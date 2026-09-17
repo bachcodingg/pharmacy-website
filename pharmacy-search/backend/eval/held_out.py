@@ -14,6 +14,7 @@ happens to reach the same variant). That's a real measurement of whether the
 overall approach generalizes, not just whether the code runs.
 """
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -65,7 +66,17 @@ def generate_held_out_cases(keywords: dict):
     return sorted(cases)
 
 
-def run(sample_limit: int = 500) -> dict:
+def run(sample_limit: int | None = 500) -> dict:
+    """Score the corrector on held-out rule groups.
+
+    sample_limit=None scores every available case (~5,955) instead of a 500
+    case sample. Prefer that whenever the result is being used as a gate: at
+    n=500 the 95% confidence interval is about +/-0.022 around a top-1 of
+    0.93, so two runs of identical code routinely land 0.012 apart and any
+    regression smaller than ~2 points is invisible. The full population brings
+    that to about +/-0.007. The sample exists for a quick signal while
+    iterating, not for accept/reject decisions.
+    """
     keywords = json.loads(KEYWORDS_PATH.read_text(encoding="utf-8"))
 
     held_out_table = build_table(keywords, excluded_rules=HELD_OUT_RULES)
@@ -74,7 +85,8 @@ def run(sample_limit: int = 500) -> dict:
     corrector = Corrector(KEYWORDS_PATH, eval_nearmiss_path)
 
     cases = generate_held_out_cases(keywords)
-    if len(cases) > sample_limit:
+    sampled = sample_limit is not None and len(cases) > sample_limit
+    if sampled:
         import random
 
         random.seed(0)
@@ -98,10 +110,16 @@ def run(sample_limit: int = 500) -> dict:
     eval_nearmiss_path.unlink(missing_ok=True)
 
     total = len(cases)
+    top1 = top1_hits / total if total else None
+    # Reported so a reader cannot mistake a sampling wobble for a real change.
+    # Comparing two runs whose intervals overlap says nothing either way.
+    ci95 = round(1.96 * math.sqrt(top1 * (1 - top1) / total), 4) if total and top1 else None
     return {
         "held_out_rules": sorted(HELD_OUT_RULES),
         "total_cases": total,
-        "top1_accuracy": round(top1_hits / total, 4) if total else None,
+        "sampled": sampled,
+        "top1_accuracy": round(top1, 4) if top1 is not None else None,
+        "top1_ci95": ci95,
         "top3_recall": round(top3_hits / total, 4) if total else None,
         "no_candidates_rate": round(no_candidates / total, 4) if total else None,
     }
@@ -110,4 +128,7 @@ def run(sample_limit: int = 500) -> dict:
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps(run(), indent=2))
+    # --full scores every case instead of a 500-case sample. Slower, but it is
+    # the only mode precise enough to accept or reject a corrector change.
+    full = "--full" in sys.argv[1:]
+    print(json.dumps(run(sample_limit=None if full else 500), indent=2))
