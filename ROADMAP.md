@@ -1,136 +1,193 @@
 # Roadmap — Pharmacy Search
 
-Written 2026-09-18. Target: grow the codebase by ~20,000 lines of work that the
-project actually needs, over roughly 11–14 weeks.
+Rewritten 2026-09-18. Target: **~10,000 lines** of work the project actually
+needs, over roughly 6–7 weeks.
 
-Companion document: `NEXT-STEPS.txt` holds the detailed findings (F-01..F-15,
-N-01..N-12) and the gotchas. This file is the sequencing plan built on top of
-it. Where the two disagree about tree state, this file is newer.
+This replaces the 20,000-line plan written earlier the same day. That plan was
+not wrong, but four of its items have since shipped and the budget has halved,
+which changes the sequencing rather than just shortening the list. What was cut
+and why is at the bottom — on a smaller budget the cuts are the interesting
+part, not the keeps.
 
-> **Note on `NEXT-STEPS.txt`:** it opens with "NOTHING IS COMMITTED", which is
-> no longer true — that work landed in `3eb5346` / `d68e821`. Its backlog
-> (Task 4) is still accurate and is the basis for everything below.
+Companion document: `NEXT-STEPS.txt` holds the detailed findings
+(F-01..F-15, N-01..N-12) and the gotchas. This file is the sequencing plan on
+top of it.
 
 ---
 
-## On the 20,000-line target
+## Shipped since the 20,000-line plan
+
+Four of that plan's Phase 1 and 2 items are done, which is why this one starts
+somewhere else:
+
+| Item | Where |
+|---|---|
+| Litestream WAL replication + a restore drill rehearsed in CI (F-13) | `c32bcf1` |
+| Reviews restricted to verified purchasers (N-08) | `92bf470` |
+| Structured JSON logs to stdout | `e5967c7` |
+| vi/en locale layer across all eight shopper views (F-15) | `2be02fe` |
+
+Two of those change what the rest of the roadmap should be, not just how long
+it is. See "The decision that got easier".
+
+---
+
+## On the 10,000-line target
 
 A line count is a size, not an outcome, and it is the one target that is
 trivially gamed — verbose tests, generated boilerplate, a locale file with
 4,000 one-word entries. Used as a **scope budget** it is fine: it says how much
-work to commit to before stopping to reassess. It is not a measure of progress.
-The guardrails section exists to keep it honest.
-
----
+to commit to before stopping to reassess. It is not a measure of progress. The
+guardrails section is what keeps it honest.
 
 ## Baseline (2026-09-18)
 
 | Area | Lines |
 |---|---|
-| `backend/app/` (17 modules) | 3,263 |
-| `backend/tests/` (19 files) | 2,174 |
-| `backend/eval/` + `build/` | 917 |
-| `frontend/src/` (21 files + CSS) | 3,413 |
-| **Total (excl. crawler + data files)** | **~9,770** |
+| `backend/app/` (18 modules) | 3,469 |
+| `backend/tests/` (21 files) | 2,612 |
+| `backend/eval/` + `build/` + `learning/` | 1,194 |
+| `frontend/src/` (22 files + CSS) | 4,030 |
+| Dockerfile, fly.toml, litestream.yml, entrypoint, scripts, CI | 440 |
+| **Total (excl. crawler and data files)** | **11,745** |
 
-+20,000 is therefore **3x the current codebase**. At a sustainable,
-actually-reviewed pace of ~1,500–2,000 lines/week that is 11–14 weeks.
-
-Backlog items confirmed still outstanding as of this date:
-
-- No FTS5 anywhere; `catalog.py:61` still uses a `LIKE` scan with leading wildcards.
-- No httpOnly cookie or CSRF handling in `backend/app/`.
-- No i18n layer; the only locale-aware code is two `toLocaleString` calls.
-- Payments stubbed at `checkout.py:30` (`available: False`).
++10,000 is therefore a little under double the current codebase. At a
+sustainable, actually-reviewed pace of ~1,500 lines/week that is 6–7 weeks.
 
 ---
 
-## The two ordering decisions that make or break this
+## The decision that got easier
 
-Everything else is negotiable. These two are not, because getting them wrong
-means rewriting thousands of lines you have already written.
+The previous plan opened with "decide the data layer before writing 15,000
+lines against `sqlite3`", and budgeted 2,000 lines for a repository layer plus
+a Postgres-or-LiteFS migration. At 10,000 lines that item does not fit, and it
+should not be squeezed in — a half-built abstraction over raw SQL is worse than
+the raw SQL.
 
-### 1. Decide the data layer before writing 15,000 lines against `sqlite3`
+**Recommendation: commit to SQLite for this budget, and stop listing Postgres
+as a goal.** Two things make that defensible now that were not true a week ago:
 
-Every module today calls `get_connection()` and writes raw SQL. Add 15k lines
-of features first and then do F-12b (Postgres / LiteFS), and you touch every
-one of those lines a second time. Either commit to SQLite permanently and stop
-listing Postgres as a goal, or introduce the repository/query layer in Phase 1
-while there are only 17 modules to convert.
+- The data is replicated. F-13 was the honest objection to a single SQLite
+  file, and it is answered: WAL frames ship to object storage every second and
+  the restore is rehearsed on every push rather than hoped for.
+- Nothing in the 10,000 lines below needs a second writer. Payments, email,
+  prescriptions and tracking are all low-write, and the `BEGIN IMMEDIATE` in
+  `write_transaction()` already serialises the one path that oversells.
 
-### 2. Do i18n before writing the next 15 view files
+What you give up is zero-downtime deploys and horizontal scale. At one machine
+serving one pharmacy's catalogue that is a real cost and not yet a pressing
+one. Revisit when a second machine is genuinely needed, and write the ADR then,
+with load numbers rather than in advance of them.
 
-F-15 means extracting strings from 21 existing frontend files. Build
-comparison, tracking, returns and loyalty views first and it becomes 36 files
-to extract from — and every new string gets written twice.
-
----
-
-## Phase 1 — Foundations (~4,700 lines, weeks 1–3)
-
-Nothing user-visible ships in this phase. That is the point: these are the
-lines that make the other 15,000 cheap.
-
-| Item | LOC | Why first |
-|---|---|---|
-| Data-access layer + Postgres-or-LiteFS decision (F-12b) | 2,000 | Blocks everything below |
-| i18n scaffolding + vi-VN extraction of the existing 21 views (F-15) | 1,800 | Blocks all new UI |
-| FTS5 over `search_text`, replacing the `LIKE` scan (F-07b) | 500 | Blocks search work; also the honest fix for indexes that a leading-wildcard `LIKE` can never use |
-| Structured JSON logging + Sentry + Litestream backups (F-13) | 400 | One `fly volumes destroy` from total data loss |
-
-**Exit gate:** full suite green; `eval/held_out.py` top-1 still >= 0.930;
-restore-from-backup rehearsed into staging at least once.
+The other ordering constraint from the previous plan — i18n before the next 15
+view files — is now satisfied. New views get `t()` from their first line.
 
 ---
 
-## Phase 2 — Correctness and trust (~5,600 lines, weeks 4–6)
+## Phase 1 — Make it a real shop (~3,400 lines, weeks 1–2)
+
+The README currently has to admit that nothing is ever charged and that
+password reset is not a working flow. Those are the two admissions in it a
+customer would care about most.
 
 | Item | LOC |
 |---|---|
-| httpOnly / Secure / SameSite cookie sessions + CSRF (F-04) | 900 |
-| Email verification + transactional email (outbox table, worker, templates) | 1,300 |
-| VNPay/Momo sandbox: provider abstraction, HMAC signing, IPN webhook, refunds, order state machine | 2,200 |
-| SEO: History-API router, server SPA fallback, per-product meta/OG, Product JSON-LD, `sitemap.xml` (F-14) | 1,200 |
+| Payments: provider abstraction, VNPay + Momo sandbox, HMAC request signing, IPN webhook with replay protection, refunds | 1,600 |
+| Unified order state machine, folding `awaiting_prescription` into it | 600 |
+| Transactional email: `outbox` table, retry worker, provider adapter (Resend/Postmark/SES), templates for order confirmation, prescription decision and password reset | 1,200 |
 
-**Dependency worth naming:** the payments state machine and the
-prescription-hold flow both mutate order status. Build the state machine once,
-here, and fold `awaiting_prescription` into it rather than leaving two parallel
-status concepts in the schema.
+**Build the state machine once, here.** Payments and the prescription hold both
+mutate order status, and `admin_orders.py` already carries a hand-written
+transition table. Adding a payment status beside it leaves two parallel status
+concepts in one schema, which is how orders end up in states nobody wrote down.
 
----
+**Email is the unblocker, not a nicety.** Password reset currently records a
+token that only an operator reading the database can retrieve. That is the
+correct failure mode, and it is still not a reset flow. Everything about
+account recovery and order communication sits behind these 1,200 lines.
 
-## Phase 3 — Product surface (~8,400 lines, weeks 7–11)
-
-Most of the line count lives here, and this is the part most specific to a
-pharmacy rather than a generic storefront.
-
-| Item | LOC |
-|---|---|
-| Pharmacist prescription review console (queue, approve/reject, upload, audit) | 1,200 |
-| Drug interaction checker + ingredient / ATC index | 1,100 |
-| Admin: suppliers, purchase orders, reorder forecasting, CSV import/export | 1,800 |
-| Order tracking, shipment states, customer notifications | 900 |
-| Returns and refunds | 800 |
-| Loyalty points + rules-based promotions (beyond flat coupons) | 900 |
-| Comparison, recently-viewed, "bought together" recommendations | 1,000 |
-| Store locator / click-and-collect | 700 |
+**Exit gate:** an order can be paid in sandbox and refunded, both transitions
+land in `admin_audit_log`, and a password reset completes end to end without
+anyone opening the database.
 
 ---
 
-## Phase 4 — Search quality and hardening (~3,200 lines, weeks 12–14)
+## Phase 2 — Close the security and search gaps (~2,300 lines, weeks 3–4)
 
 | Item | LOC |
 |---|---|
-| SymSpell deletion index + LRU cache (NEXT-STEPS Task 2), closing the 50 ms budget | 1,000 |
-| Session-linked query logs so correction precision becomes computable; expanded harness | 500 |
-| Playwright E2E suite + CI matrix | 900 |
-| Image pipeline: mirror off the Long Chau CDN, WebP/AVIF, srcset, tighten CSP (F-11) | 800 |
+| httpOnly / Secure / SameSite=Lax cookie sessions + CSRF on state-changing requests (F-04) | 900 |
+| FTS5 over `search_text`, replacing the `LIKE '%term%'` scan (F-07b) | 500 |
+| Corrector: finish F-08, under the 50 ms budget | 500 |
+| Session-linked query logs, so correction precision becomes computable | 400 |
 
-When the corrector finally gets fast enough,
-`tests/test_core.py::test_correction_latency_budget` will XPASS — and because
-it is `strict=True`, that **fails the suite**. This is the design working, not
-a break. Convert it to a normal passing assertion at that moment and say so in
-the commit message.
+**F-04 is defence in depth, not an open hole.** The frontend escapes
+consistently across all 15 view files and there is no known injection path. Say
+that in the PR — a security change described as fixing a vulnerability that
+does not exist teaches the next reader the wrong thing.
+
+**F-07b is the honest fix for the indexes already added.** `idx_products_*`
+cannot serve a leading-wildcard `LIKE`, so today's indexes help every query
+except the search one. Note the gotcha: the FTS table needs triggers to stay in
+sync, and `SEARCH_TEXT_FOLD_VERSION` has to be bumped if folding changes.
+
+**F-08 is 500 lines now, not 1,000.** `NEXT-STEPS.txt` Task 2 has the profile
+and three prototyped changes, and the measured gap is 71 ms against a 50 ms
+budget — 1.5x, not the 10x the original 1,349 ms figure implied. The audit's
+suggested SymSpell deletion index is explicitly the wrong tool for this metric:
+0.5-cost adjacent substitutions mean a weighted cap of 3.0 admits six
+operations, so a lossless deletion index needs depth 6.
+
+**Watch for the XPASS.** When the corrector gets under budget,
+`tests/test_core.py::test_correction_latency_budget` will pass — and because it
+is `strict=True`, an unexpected pass **fails the suite**. That is the design
+working. Convert it to a normal assertion at that moment and say so.
+
+**Exit gate:** `eval/held_out.py --full` top-1 still ≥ 0.912; `eval/latency.py`
+p95 < 50 ms; suite green with the xfail converted.
+
+---
+
+## Phase 3 — The pharmacy-specific surface (~2,900 lines, weeks 5–6)
+
+This is the part that is a pharmacy rather than a generic storefront, and where
+the project's premise pays off.
+
+| Item | LOC |
+|---|---|
+| Pharmacist prescription review console: queue, approve/reject with reason, document upload to object storage, audit trail | 1,200 |
+| Drug interaction checker + ingredient / ATC index, warning at cart and checkout | 1,100 |
+| Order tracking: shipment states, carrier reference, customer-facing timeline and notifications | 600 |
+
+**The review console is the highest-value item on this page.** 389 of the 1,894
+products are prescription-only and the backend gate already exists — orders are
+held in `awaiting_prescription` and only a pharmacist can release them. What
+does not exist is a usable screen for the pharmacist doing it. The policy is
+enforced; the workflow is a JSON API call.
+
+**The interaction checker is the one item with real clinical risk.** It gives
+advice about medicines. Scope it narrowly: warn and require acknowledgement,
+never silently block, always name the source of the interaction data, and keep
+a pharmacist in the loop for anything it flags. A wrong warning that trains
+users to dismiss warnings is worse than no checker. Settle the data licensing
+question before writing the code.
+
+---
+
+## Phase 4 — Reach and proof (~1,700 lines, week 7)
+
+| Item | LOC |
+|---|---|
+| SEO: History-API routing with a server-side SPA fallback, per-product `<title>`/meta/Open Graph, Product JSON-LD, `sitemap.xml` (F-14) | 900 |
+| Playwright E2E suite across the shopper flows, in both locales | 800 |
+
+**F-14 has a comment to update.** `main.py` mounts the frontend with a comment
+explaining that no path-based fallback is needed *because* the router is
+hash-based. That comment becomes wrong the moment this ships.
+
+**Run the E2E suite in both locales.** The i18n layer is new, and the failure
+mode it introduces — a key that resolves in one language and falls through in
+the other — is invisible to the unit tests and to a single-locale browser pass.
 
 ---
 
@@ -138,63 +195,85 @@ the commit message.
 
 | Phase | LOC |
 |---|---|
-| 1 — Foundations | 4,700 |
-| 2 — Correctness and trust | 5,600 |
-| 3 — Product surface | 8,400 |
-| 4 — Search quality and hardening | 3,200 |
-| **Total** | **~21,900** |
+| 1 — Make it a real shop | 3,400 |
+| 2 — Security and search gaps | 2,300 |
+| 3 — Pharmacy-specific surface | 2,900 |
+| 4 — Reach and proof | 1,700 |
+| **Total** | **~10,300** |
 
-That is deliberately ~2,000 over target. Phase 3 is the release valve: cut
-store locator and comparison first if the count lands at 20,000 early.
+Deliberately ~300 over. Phase 3's order tracking is the release valve.
 
-Least certain estimate on this page: the 2,000 for the data layer. It could
-double depending on how much raw SQL resists abstraction. Convert `catalog.py`
-first and re-estimate from the measured cost.
+Least certain estimate on this page: the 1,600 for payments. VNPay and Momo
+sandbox work is mostly signing, callback verification and error-path handling,
+and the error paths are where the estimate moves. Build one provider end to end
+and re-estimate the second from the measured cost.
 
 ---
 
 ## Guardrails
 
-These matter more than the schedule. Without them, 20,000 lines is a liability.
+These matter more than the schedule.
 
-- **~30% of every budget above is tests.** A workstream that ships 1,200 lines
-  with 80 lines of tests is not done. The backend ratio today is 2,174/3,263 —
+- **~30% of every budget above is tests.** A workstream shipping 1,200 lines
+  with 80 lines of tests is not done. The backend ratio today is 2,612/3,469 —
   do not let it fall.
-- **PR size cap: 400 lines.** `NEXT-STEPS.txt` Task 3 already got this right —
-  nine independent commits, not one squash. That discipline is the only thing
-  that keeps 20,000 lines reviewable.
-- **No new file over ~400 lines.** `corrector.py` at 825 is the current outlier
-  and it has earned it; do not grow a second one by accident.
-- **The accuracy floor is permanent:** `top1_accuracy >= 0.930` and
-  `no_candidates_rate <= 0.040`, checked on every corrector change. The session
-  that wrote `NEXT-STEPS.txt` lost 0.930 -> 0.926 to a "cleaner" bound that was
-  simply wrong. This gate is what catches that.
-- **One ADR per workstream** (~100 lines each; docs, counted separately from
-  the code budget). The Postgres-vs-LiteFS decision especially.
+- **PR size cap: 400 lines.** One finding per commit, with the measurement in
+  the message. It is the only thing that keeps 10,000 lines reviewable.
+- **No new file over ~400 lines.** `corrector.py` at 886 is the current outlier
+  and has earned it; do not grow a second one by accident.
+- **The accuracy floor is permanent**, and it is now stated correctly:
+  `eval/held_out.py --full` top-1 **≥ 0.912**, checked on every corrector
+  change. The old floor of 0.930 came from a 500-case sample with a ±0.022
+  interval — wide enough that two runs of identical code straddled it. Never
+  compare a sampled run against a full one.
+- **One ADR per workstream** (~100 lines each, counted separately from the code
+  budget). Payments and the interaction-data source especially.
 - **Fill `eval/human_typed.tsv`.** It is still a header row. Until it has real
   rows, 92.6% is a lower-bound proxy and not user-facing accuracy — and no
-  amount of new code changes that.
+  amount of new code changes that. Ten people, 100 product names each, typed
+  quickly. It is the cheapest item on this page and the only one that turns the
+  headline number into a measurement of actual users.
+- **Run `scripts/restore-drill.sh remote` once against the real bucket.** The
+  CI drill uses a `file://` replica, which proves the mechanism and not the
+  credentials. Until someone runs the remote form, backups are tested, not
+  proven.
 
 ---
 
 ## Week 1, concretely
 
-1. Correct or retire the stale parts of `NEXT-STEPS.txt`. A handoff document
-   that is wrong about tree state is worse than no document.
-2. Write the data-layer ADR. Postgres or LiteFS — decide, do not defer.
-3. Build the repository layer against the existing schema; convert `catalog.py`
-   and `db.py` only; keep the suite green. That one conversion gives you the
-   real per-module cost for the other 15.
+1. Write the payments ADR: the provider abstraction's shape, and what the order
+   state machine's states are. Decide before the second provider, not after.
+2. Build the state machine and convert `admin_orders.py` to it, keeping the
+   suite green. No payment code yet — that conversion gives you the real cost.
+3. Stand up the `outbox` table and the retry worker with a logging-only
+   adapter. Wiring a real provider is then a config change, and password reset
+   stops being a lie in the README a week earlier.
 
 ---
 
-## Out of scope
+## Deliberately cut from the 20,000-line plan
 
-Deliberately not on this roadmap:
+Halving the budget means these do not happen. Worth being explicit rather than
+quietly dropping them:
+
+| Cut | LOC | Why this one |
+|---|---|---|
+| Data-access layer + Postgres/LiteFS migration | 2,000 | See "The decision that got easier". Backups answered the real objection. |
+| Admin suppliers, purchase orders, reorder forecasting | 1,800 | Inventory management for a shop with no real stock source — `stock_is_estimated` is true for every row. Build the data source before the forecasting. |
+| Loyalty points + rules-based promotions | 900 | Flat coupons already work. Retention mechanics before a working payment flow optimises a funnel nobody can complete. |
+| Comparison, recently-viewed, recommendations | 1,000 | Needs traffic to be worth anything, and the click log that feeds it is thin. |
+| Customer-facing returns and refunds | 800 | Refunds land in Phase 1 as an admin action. Self-service needs payments settled first. |
+| Store locator / click-and-collect | 700 | One pharmacy. |
+| Image pipeline off the Long Châu CDN (F-11) | 800 | Real, and a licensing question as much as an engineering one. The CSP already scopes the hotlink. |
+
+Also still out of scope, deliberately:
 
 - **N-07 user enumeration** via the 409 on register. A genuine tradeoff against
-  registration UX, mitigated by rate limiting. Revisit only alongside email
-  verification in Phase 2.
-- **Real payment-processor onboarding.** Phase 2 covers sandbox integration
-  only. Live VNPay/Momo merchant approval is paperwork time, not code time, and
-  does not belong in a line budget.
+  registration UX, mitigated by rate limiting. Revisit alongside email
+  verification in Phase 1, where the fix is nearly free.
+- **Live payment-processor onboarding.** Phase 1 covers sandbox only. VNPay and
+  Momo merchant approval is paperwork time, not code time, and does not belong
+  in a line budget.
+- **Translating the admin console.** A staff tool for one pharmacy; a
+  half-translated screen is worse than a consistent one.
