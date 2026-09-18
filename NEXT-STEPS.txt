@@ -5,6 +5,11 @@ Written 2026-09-11, at the end of a session that audited this project against
 Pharmacy-Search-Audit.pdf (15 findings, F-01..F-15), implemented most of those
 fixes, and found 12 more issues by reading the code (N-01..N-12).
 
+UPDATED 2026-09-18. Tasks 0, 1 and 3 are done; Task 2 is still open and the
+measurements below have been redone on this machine. Task 4 has lost its first
+three entries. Each task now says so at the top rather than reading as though
+nothing has happened.
+
 Read this whole file before touching anything. Run the tasks in order.
 
 Repo root: D:\fpt      Project: D:\fpt\pharmacy-search      Branch: main
@@ -13,21 +18,34 @@ Repo root: D:\fpt      Project: D:\fpt\pharmacy-search      Branch: main
 --------------------------------------------------------------------------------
 STATE OF THE TREE - READ THIS FIRST
 --------------------------------------------------------------------------------
-*** NOTHING IS COMMITTED. *** Everything described below is uncommitted work in
-the working tree. Do not run `git checkout`, `git stash`, or `git reset` on this
-repo before reading TASK 0.
+Everything described in this file is COMMITTED. (It was not when the file was
+written; the warning that used to be here no longer applies.) The work landed
+across a9df28c and the three commits before it, and the three commits on
+branch `task4-backups-and-hardening`:
 
-Last verified full test run: 157 passed, 1 xfailed.
-(It was 121 passed, 1 xfailed before the session.)
+    c32bcf1  Litestream WAL replication + rehearsed restore     [F-13]
+    92bf470  Reviews restricted to buyers                       [N-08]
+    e5967c7  Structured JSON logs to stdout
+
+That branch has NOT been merged or pushed. Fast-forward main onto it if you
+want it, or keep working on it.
+
+Last verified full test run: 192 passed, 1 xfailed.
+(157 + 1 when this file was written; 121 + 1 before that session.)
 The frontend builds clean via `npm run build`.
 
-BUT: app/corrector.py was changed AFTER that test run and has NOT been
-validated. That is TASK 1, and it is the highest priority.
+NOT verified: `docker build`. Docker was not running on the machine that made
+the last three commits, and the Dockerfile changed (it now downloads and runs
+litestream). CI's `image` job builds it on push, so the first push is the test.
 
 
 --------------------------------------------------------------------------------
-TASK 0 - ORIENT (do this first, ~2 minutes)
+TASK 0 - ORIENT (do this first, ~2 minutes)      [DONE - the tree is clean now]
 --------------------------------------------------------------------------------
+The file list below is historical: all of it is committed, so `git status`
+comes back empty and `git diff --stat` prints nothing. Kept as a record of
+what the 2026-09-11 session produced.
+
 Run these and read the output before editing anything:
 
     cd /d/fpt
@@ -52,8 +70,29 @@ Expect ~32 modified files, plus these new untracked files:
 
 
 --------------------------------------------------------------------------------
-TASK 1 - VALIDATE THE CORRECTOR CHANGE  (HIGHEST PRIORITY, UNFINISHED)
+TASK 1 - VALIDATE THE CORRECTOR CHANGE                                   [DONE]
 --------------------------------------------------------------------------------
+RESULT: validated, and the harness that was supposed to validate it turned out
+to be the thing that needed fixing first. See a9df28c.
+
+At n=500 the held-out harness has a 95% interval of about +/-0.022 around a
+top-1 of 0.93, so the "top1 >= 0.930, identical to baseline" gate below fails
+on sampling noise alone - four runs of IDENTICAL code landed at 0.922, 0.926,
+0.930 and 0.934. `eval/held_out.py --full` now scores all 5,955 cases instead,
+narrowing the interval to about +/-0.007, and the result carries top1_ci95 and
+a `sampled` flag so two runs cannot be compared without their error bars.
+
+On the full population the scaled bound holds at top-1 0.912 across four hash
+seeds. That is not a regression from 0.930 - it is the same corrector measured
+without the sampling wobble.
+
+This also retires the claim below that the unscaled bound was *measured* to
+lose accuracy (0.930 -> 0.926). That delta was a fifth of the instrument's
+error at the time. The scaled bound is still the correct one, on the argument
+in char_signature's docstring rather than on that measurement, and a direct
+check found no violations over 2,029,059 vocabulary pairs. Everything from
+here to the end of Task 1 is kept for the reasoning, not the numbers.
+
 WHAT WAS DONE
 app/corrector.py `_fuzzy_lookup` was scanning every vocabulary form in the +/-2
 length buckets across two views, running an O(n*m) edit-distance DP on each.
@@ -126,11 +165,63 @@ WHAT YOU MUST DO
 
 
 --------------------------------------------------------------------------------
-TASK 2 - FINISH F-08 PROPERLY  (optional; the interesting one)
+TASK 2 - FINISH F-08 PROPERLY               (STILL OPEN - start here, measured)
 --------------------------------------------------------------------------------
-Only after Task 1 passes. Going from ~128 ms to under the 50 ms budget needs
-real candidate generation, not just a better filter. The audit suggests a
-SymSpell deletion index or a BK-tree.
+MEASURED 2026-09-18, on this machine, before any of the work below:
+
+    eval/latency.py     p50 0.048 ms   p95 71.252 ms   p99 93.789 ms
+                        max 208.257 ms      (budget: 50 ms)
+
+Profiling the fuzzy path over the same 999-query mix, per query:
+
+    2,937 bucket entries scanned (two integer ops each)  -> a few ms
+      578 edit_distance DP calls surviving the prune     -> the rest
+
+So the prune is NOT the bottleneck; the DP calls it lets through are. That
+changes the recommendation below.
+
+READ THIS BEFORE BUILDING A DELETION INDEX. SymSpell assumes unit-cost edits.
+Here a keyboard-adjacent substitution costs SUB_COST_ADJACENT (0.5), so a
+weighted cap of 3.0 admits up to SIX edit operations, and a deletion index
+would need depth 6 rather than depth 2 to be lossless. Depth 6 over ~24k forms
+is not a memory trade worth making, and depth 2 silently drops exactly the
+multi-adjacent-key typos the 0.5 cost exists to catch. The deletion index is
+the wrong tool for THIS distance metric.
+
+Three cheaper changes were prototyped and measured instead (scratch only, not
+committed - they need re-running end to end and a --full held-out before they
+go in):
+
+  1. SHARPER PRUNE, still an exact lower bound. A character class present in
+     the query and absent from the form costs 0.5 only if some KEYBOARD
+     NEIGHBOUR of it appears in the form; otherwise the cheapest operation
+     touching it is a delete or a non-adjacent substitution, at 1.0. So
+
+         bound = 0.5 * popcount(miss & nbr_sig(form))
+               + 1.0 * popcount(miss & ~nbr_sig(form))
+
+     with nbr_sig precomputed per form at startup. Four integer ops instead of
+     two, and it can only ever RAISE the bound. Collisions in the `ord & 63`
+     packing shrink it, which is the safe direction - they can never break it.
+
+  2. MERGE THE VIEWS. The telex and no-accent indexes share 6,277 forms, and
+     _fuzzy_lookup currently runs the DP on each of them twice. Merging to one
+     form -> keywords map is behaviour-identical (the loop already takes the
+     min distance per keyword) and drops the scan from 29,937 entries to
+     23,660.
+
+  3. BANDED ROLLING DP. edit_distance allocates a full (la+1)x(lb+1) list of
+     lists and calls is_keyboard_adjacent per cell. A single-row version with
+     a +/-3 Ukkonen band and the neighbour set hoisted per row was verified
+     identical to the current function on 180,000 random pairs across all
+     three caps. (KEYBOARD_NEIGHBORS is symmetric - checked - so one lookup
+     per cell suffices instead of two.)
+
+Whatever you do, re-run `eval/held_out.py --full` and treat the accuracy as
+the product. And note the 50 ms budget only needs a ~1.5x improvement now,
+not the 10x the original 1349 ms figure implied.
+
+The original suggestion, kept for the record:
 
 Recommended: SymSpell-style deletion neighbourhood.
   - In Corrector.__init__, for each form in the telex and no-accent views,
@@ -153,11 +244,17 @@ benchmark (999 distinct queries) but real traffic repeats heavily.
 
 
 --------------------------------------------------------------------------------
-TASK 3 - COMMIT THE WORK
+TASK 3 - COMMIT THE WORK                                                 [DONE]
 --------------------------------------------------------------------------------
-Do this once Task 1 passes. Do NOT squash into one commit - these changes are
-independent and a reviewer should be able to read them separately. Suggested
-split, in this order:
+Everything is committed. The nine-way split below did NOT happen: the work
+landed as a9df28c plus three commits with messages "a" and "update". That
+history is already published, so it was left alone rather than rebased.
+
+The split is still the right instinct, and the three commits on
+`task4-backups-and-hardening` follow it - one finding per commit, with the
+measurements in the message.
+
+Suggested split, in this order (historical):
 
   1. "Add env-driven config and move mutable state onto the volume"
      app/config.py, db.py paths, learning/*, eval/query_log.py,
@@ -206,11 +303,25 @@ TASK 4 - WHAT IS STILL NOT DONE
 --------------------------------------------------------------------------------
 In the order I would do them.
 
-F-13  NO BACKUPS. The single Fly volume holds every user, order and review, and
-      is not replicated. Add Litestream as a sidecar streaming the SQLite WAL
-      to S3 or Cloudflare R2, then actually rehearse a restore into staging.
-      This is the largest remaining operational risk: one corrupted write, one
-      `fly volumes destroy`, and there is no recovery path.
+F-13  BACKUPS.                                            [DONE - c32bcf1]
+      Litestream now runs as the container's supervisor, streaming the WAL to
+      S3-compatible storage every second (12h snapshots, 30 day retention).
+      docker-entrypoint.sh restores BEFORE uvicorn starts, because main.py
+      creates an empty database at import and would otherwise replicate that
+      emptiness over the good replica. `-if-replica-exists` is reachable only
+      behind LITESTREAM_BOOTSTRAP for the same reason: a misconfigured bucket
+      must crash-loop, not boot empty.
+
+      scripts/restore-drill.sh rehearses recovery. `local` runs in CI on every
+      push against a file:// replica and fails if a row written after the last
+      snapshot does not come back. `remote` restores the production replica
+      into a scratch file and verifies it.
+
+      STILL TO DO: nobody has run `restore-drill.sh remote` against a real
+      bucket, because that needs credentials this machine does not have. The
+      recovery path is tested, not proven. Create the bucket, set the Fly
+      secrets listed in .env.example, deploy once with LITESTREAM_BOOTSTRAP=1,
+      UNSET IT, then run the remote drill.
 
 F-04  SESSION TOKENS IN localStorage. Partly mitigated this session: TTL cut
       from 30 days to 7, sessions invalidated on password change and reset,
@@ -247,16 +358,24 @@ N-07  USER ENUMERATION via /api/auth/register returning 409 "An account with
       tradeoff against registration UX, and rate limiting mitigates it.
       Revisit only alongside email verification.
 
-N-08  REVIEWS ARE OPEN TO ANY SIGNED-IN ACCOUNT. A verified_purchase flag is
-      now recorded and displayed, but the gate is not closed. Closing it is a
-      one-line policy change in catalog.create_review - the data is already
-      there. It would break ~6 tests in test_catalog.py that review without
-      buying; update those tests rather than weakening the rule.
+N-08  REVIEWS ARE OPEN TO ANY SIGNED-IN ACCOUNT.          [DONE - 92bf470]
+      Closed. catalog._has_purchased is now the single predicate behind both
+      the gate and the verified_purchase stamp, so the two cannot drift. The
+      six tests that reviewed without buying now buy first; three new ones
+      cover the gate itself, the verified stamp, and the order-then-cancel
+      workaround. The frontend explains the rule instead of offering a form
+      that can only 403.
 
 ALSO NOT DONE (from the audit's operations sections, all still valid):
   - Staging environment as a second Fly app (audit section 05, step 01).
   - Sentry for exceptions, plus an external uptime monitor.
-  - Structured JSON logs to stdout for a log drain.
+  - Structured JSON logs to stdout for a log drain.       [DONE - e5967c7]
+    One JSON object per line, one per request, carrying method, path, status,
+    duration_ms and request_id; request_id reuses Fly's fly-request-id and
+    comes back in X-Request-Id. 4xx warns, 5xx errors, /api/health is debug.
+    Query strings are deliberately not logged - there is a test that says so.
+    What is still missing is the drain itself: nothing is attached, so these
+    lines currently live and die in `fly logs`.
   - Real payments (VNPay/Momo). checkout.py is honest that only COD works.
   - Transactional email. Password reset currently records a token that only an
     operator reading the database can retrieve. That is the correct failure
@@ -316,9 +435,9 @@ GOTCHAS - THINGS THAT WILL BITE YOU
 VERIFY EVERYTHING STILL WORKS
 --------------------------------------------------------------------------------
     cd /d/fpt/pharmacy-search/backend
-    python -m pytest tests -q            # expect 157 passed, 1 xfailed
-    python eval/held_out.py              # expect top1 >= 0.930
-    python eval/latency.py               # record p95
+    python -m pytest tests -q            # expect 192 passed, 1 xfailed
+    python eval/held_out.py --full       # expect top1 0.912 +/- 0.007
+    python eval/latency.py               # last measured p95 71.252 ms
 
     cd /d/fpt/pharmacy-search/frontend
     npm run build                        # must succeed
@@ -326,13 +445,19 @@ VERIFY EVERYTHING STILL WORKS
     cd /d/fpt/pharmacy-search
     docker build -t pharmacy-search:local .
 
-The docker build has NOT been verified since the Dockerfile was rewritten this
-session (npm ci, non-root user, split requirements, HEALTHCHECK). Run it before
-deploying anything.
+    cd /d/fpt/pharmacy-search
+    ./scripts/restore-drill.sh local     # needs litestream + sqlite3 on PATH
+
+The docker build has STILL NOT been verified locally - once because Docker was
+not installed, and again on 2026-09-18 because Docker Desktop was not running.
+It has changed twice since (npm ci, non-root user, split requirements,
+HEALTHCHECK; then the litestream binary, /etc/litestream.yml and the
+entrypoint). CI's `image` job builds it on every push, which is the only place
+it has been exercised. Run it before deploying anything.
 
 
 --------------------------------------------------------------------------------
 ONE LINE TO PASTE TO CLAUDE NEXT TIME
 --------------------------------------------------------------------------------
-    Read NEXT-STEPS.txt in this folder, then do Task 1 and Task 3.
+    Read NEXT-STEPS.txt in this folder, then do Task 2.
 ================================================================================
