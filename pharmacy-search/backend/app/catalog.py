@@ -268,6 +268,20 @@ def list_reviews(product_id: int):
     return [row_to_dict(r) for r in rows]
 
 
+def _has_purchased(conn, product_id: int, user_id: int) -> bool:
+    """Whether this user has ordered this product, cancelled orders aside.
+
+    One definition, used both to gate the review and to stamp
+    verified_purchase on it. Two copies of this predicate would eventually
+    disagree, and the disagreement would show up as a review that the gate
+    let through and the badge calls unverified."""
+    return conn.execute(
+        """SELECT 1 FROM order_items oi JOIN orders o ON o.id = oi.order_id
+           WHERE oi.product_id = ? AND o.user_id = ? AND o.status != 'cancelled' LIMIT 1""",
+        (product_id, user_id),
+    ).fetchone() is not None
+
+
 @router.post("/{product_id}/reviews", status_code=201)
 def create_review(product_id: int, body: ReviewRequest, user: dict = Depends(get_current_user)):
     with get_connection() as conn:
@@ -279,12 +293,18 @@ def create_review(product_id: int, body: ReviewRequest, user: dict = Depends(get
         ).fetchone()
         if existing:
             raise HTTPException(status_code=409, detail="You've already reviewed this product")
-        # Did this reviewer actually buy it? Cancelled orders do not count.
-        purchased = conn.execute(
-            """SELECT 1 FROM order_items oi JOIN orders o ON o.id = oi.order_id
-               WHERE oi.product_id = ? AND o.user_id = ? AND o.status != 'cancelled' LIMIT 1""",
-            (product_id, user["id"]),
-        ).fetchone() is not None
+        # N-08: reviews are for buyers. Anyone with an email address could
+        # previously rate any product, which is the whole business model of a
+        # review-farming operation - and on a pharmacy, ratings on medicines
+        # are advice. The verified_purchase column already recorded who had
+        # actually bought the thing; this makes it the gate rather than a
+        # decoration next to the star rating.
+        purchased = _has_purchased(conn, product_id, user["id"])
+        if not purchased:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only review a product you have ordered",
+            )
         try:
             cursor = conn.execute(
                 "INSERT INTO reviews (product_id, user_id, rating, comment, created_at, verified_purchase) "

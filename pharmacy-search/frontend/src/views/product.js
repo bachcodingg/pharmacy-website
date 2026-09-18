@@ -1,4 +1,4 @@
-import { getProduct, listReviews, createReview, getToken, addToCart, addToWishlist } from '../api.js';
+import { getProduct, listReviews, createReview, getToken, listOrders, addToCart, addToWishlist } from '../api.js';
 import { escapeHtml, formatVnd, starRating, productThumbHtml } from '../shared.js';
 import { navigate } from '../router.js';
 import { refreshNavBadges } from '../nav.js';
@@ -99,6 +99,24 @@ export async function render(root, params) {
   const formSlot = root.querySelector('#review-form-slot');
   if (!getToken()) {
     formSlot.innerHTML = `<p class="hint-text"><a href="#/account">Sign in</a> to write a review.</p>`;
+    return;
+  }
+
+  // Reviews are restricted to buyers, so say that here instead of offering a
+  // form whose only possible outcome is a 403. The server is still the
+  // authority - if this lookup fails we show the form and let it answer.
+  let hasOrdered = true;
+  try {
+    const orders = await listOrders();
+    hasOrdered = orders.some(
+      (order) => order.status !== 'cancelled'
+        && order.items.some((item) => item.product_id === product.id),
+    );
+  } catch (err) {
+    hasOrdered = true;
+  }
+  if (!hasOrdered) {
+    formSlot.innerHTML = `<p class="hint-text">Only customers who have ordered this product can review it.</p>`;
     return;
   }
 

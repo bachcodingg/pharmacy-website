@@ -12,6 +12,51 @@ def _register():
     return r.json()["token"]
 
 
+def _purchasable_product(index: int):
+    """The index-th product a test can actually buy and therefore review.
+
+    Reviews are restricted to buyers (N-08), so these tests can no longer pick
+    an arbitrary product off page N - it has to be in stock and over the
+    counter, because a prescription item goes to awaiting_prescription instead
+    of being placed. Indexed so each test gets its own product and the rating
+    assertions stay independent; the stock floor keeps the selection stable as
+    earlier tests buy from the same list."""
+    data = client.get("/api/products", params={"in_stock": True, "page_size": 200}).json()
+    candidates = [p for p in data["items"] if p["stock"] >= 5 and not p["prescription"]]
+    return candidates[index]
+
+
+def _buy(headers, product_id: int) -> dict:
+    """Place a cash-on-delivery order for one unit, so the reviewer qualifies."""
+    address = client.post("/api/auth/addresses", json={
+        "label": "Home", "recipient_name": "Reviewer", "phone": "0900000000",
+        "line1": "1 Test St", "city": "Ho Chi Minh City", "is_default": True,
+    }, headers=headers).json()
+    client.post("/api/cart/items", json={"product_id": product_id, "quantity": 1}, headers=headers)
+    r = client.post("/api/checkout/place-order", json={
+        "address_id": address["id"], "shipping_method": "standard", "payment_method": "cod",
+    }, headers=headers)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _cancel_as_admin(order_id: int) -> None:
+    """Only an admin can cancel an order; there is no customer-facing route."""
+    import uuid
+
+    from app.db import get_connection
+
+    email = f"cancel-admin-{uuid.uuid4().hex[:8]}@example.com"
+    token = client.post("/api/auth/register", json={
+        "email": email, "password": "correcthorse", "name": "Admin",
+    }).json()["token"]
+    with get_connection() as conn:
+        conn.execute("UPDATE users SET is_admin = 1 WHERE email = ?", (email,))
+    r = client.put(f"/api/admin/orders/{order_id}/status", json={"status": "cancelled"},
+                   headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
 def test_list_products_is_paginated_and_flags_estimated_fields():
     r = client.get("/api/products", params={"page": 1, "page_size": 5})
     assert r.status_code == 200
@@ -52,9 +97,10 @@ def test_review_requires_auth():
 
 
 def test_create_review_updates_product_rating():
-    listed = client.get("/api/products", params={"page": 2, "page_size": 1}).json()["items"][0]
+    listed = _purchasable_product(0)
     token = _register()
     headers = {"Authorization": f"Bearer {token}"}
+    _buy(headers, listed["id"])
 
     r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 4, "comment": "Worked well"}, headers=headers)
     assert r.status_code == 201
@@ -69,9 +115,10 @@ def test_create_review_updates_product_rating():
 
 
 def test_review_rejects_duplicate_from_same_user():
-    listed = client.get("/api/products", params={"page": 3, "page_size": 1}).json()["items"][0]
+    listed = _purchasable_product(1)
     token = _register()
     headers = {"Authorization": f"Bearer {token}"}
+    _buy(headers, listed["id"])
 
     r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
     assert r.status_code == 201
@@ -80,12 +127,49 @@ def test_review_rejects_duplicate_from_same_user():
 
 
 def test_review_rejects_out_of_range_rating():
-    listed = client.get("/api/products", params={"page": 4, "page_size": 1}).json()["items"][0]
+    listed = _purchasable_product(2)
     token = _register()
     headers = {"Authorization": f"Bearer {token}"}
+    _buy(headers, listed["id"])
 
     r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 7}, headers=headers)
     assert r.status_code == 422
+
+
+def test_review_rejects_user_who_never_bought_it():
+    """N-08. The gate, stated directly: a signed-in account with no order for
+    this product cannot rate it."""
+    listed = _purchasable_product(3)
+    headers = {"Authorization": f"Bearer {_register()}"}
+
+    r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
+    assert r.status_code == 403
+    assert "ordered" in r.json()["detail"].lower()
+    assert client.get(f"/api/products/{listed['id']}/reviews").json() == []
+
+
+def test_review_from_a_buyer_is_marked_verified():
+    """The badge and the gate read the same predicate, so every review that
+    now exists is a verified one."""
+    listed = _purchasable_product(4)
+    headers = {"Authorization": f"Bearer {_register()}"}
+    _buy(headers, listed["id"])
+
+    r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
+    assert r.status_code == 201
+    assert r.json()["verified_purchase"] == 1
+
+
+def test_cancelled_order_does_not_earn_a_review():
+    """A buyer who cancels has not received the product. Cancellation is also
+    the cheap way to fake a purchase if it counted."""
+    listed = _purchasable_product(5)
+    headers = {"Authorization": f"Bearer {_register()}"}
+    order = _buy(headers, listed["id"])
+    _cancel_as_admin(order["id"])
+
+    r = client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
+    assert r.status_code == 403
 
 
 def test_search_by_query_and_category():
@@ -191,9 +275,10 @@ def test_filter_by_in_stock():
 
 
 def test_filter_by_min_rating_excludes_unrated_products():
-    listed = client.get("/api/products", params={"page": 5, "page_size": 1}).json()["items"][0]
+    listed = _purchasable_product(6)
     token = _register()
     headers = {"Authorization": f"Bearer {token}"}
+    _buy(headers, listed["id"])
     client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
 
     r = client.get("/api/products", params={"min_rating": 4, "page_size": 50})
@@ -225,9 +310,10 @@ def test_sort_newest_is_most_recently_migrated_first():
 
 
 def test_sort_top_rated_puts_rated_products_first():
-    listed = client.get("/api/products", params={"page": 6, "page_size": 1}).json()["items"][0]
+    listed = _purchasable_product(7)
     token = _register()
     headers = {"Authorization": f"Bearer {token}"}
+    _buy(headers, listed["id"])
     client.post(f"/api/products/{listed['id']}/reviews", json={"rating": 5}, headers=headers)
 
     r = client.get("/api/products", params={"sort": "top_rated", "page_size": 1})
