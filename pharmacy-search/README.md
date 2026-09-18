@@ -226,8 +226,10 @@ Deliberately listed rather than hidden:
   storage choice is still weaker than a cookie.
 - **Hash-router SPA**, so product pages are not indexable and cannot be
   previewed when shared.
-- **The UI is in English** while the catalogue and the entire premise are
-  Vietnamese. It needs a `vi-VN` locale and proper `145.000 ₫` formatting.
+- **The admin console is still English-only.** The shopper-facing views ship
+  `vi` and `en` (`frontend/src/i18n.js`, `vi` by default); the admin views are
+  a staff tool for one pharmacy and were left untranslated rather than
+  half-translated.
 - **Backups are not yet proven against the real bucket.** Litestream is wired
   up and the restore round-trip is rehearsed in CI against a `file://` replica,
   but nobody has yet run `scripts/restore-drill.sh remote` against production

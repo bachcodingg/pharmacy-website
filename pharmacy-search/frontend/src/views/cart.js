@@ -3,43 +3,44 @@ import {
   applyDiscountCode, removeDiscountCode, getToken,
 } from '../api.js';
 import { escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
+import { t } from '../i18n.js';
 import { refreshNavBadges } from '../nav.js';
 import { navigate } from '../router.js';
 
 export async function render(root) {
   if (!getToken()) {
-    root.innerHTML = `<div class="empty-state">Please <a href="#/account">sign in</a> to view your cart.</div>`;
+    root.innerHTML = `<div class="empty-state">${t('common.signInTo.cart')}</div>`;
     return;
   }
 
-  root.innerHTML = `<div class="loading">Loading…</div>`;
+  root.innerHTML = `<div class="loading">${t('common.loading')}</div>`;
   const cart = await getCart();
   renderCart(root, cart);
 }
 
 function renderCart(root, cart) {
   root.innerHTML = `
-    <h1 class="page-title">Your cart</h1>
+    <h1 class="page-title">${t('cart.title')}</h1>
     <div class="cart-layout">
       <div class="cart-items">
         <div id="cart-active"></div>
         <div id="cart-saved"></div>
       </div>
       <aside class="cart-summary">
-        <h2>Order summary</h2>
-        <div class="summary-row"><span>Subtotal</span><span>${formatVnd(cart.subtotal) || '0₫'}</span></div>
+        <h2>${t('cart.summary')}</h2>
+        <div class="summary-row"><span>${t('cart.subtotal')}</span><span>${formatVnd(cart.subtotal) || formatVnd(0)}</span></div>
         <div id="discount-row"></div>
-        <div class="summary-row summary-total"><span>Total</span><span>${formatVnd(cart.total) || '0₫'}</span></div>
+        <div class="summary-row summary-total"><span>${t('cart.total')}</span><span>${formatVnd(cart.total) || formatVnd(0)}</span></div>
 
         <form id="discount-form" class="discount-form">
-          <input type="text" name="code" placeholder="Discount code" value="${cart.discount_code ? escapeHtml(cart.discount_code) : ''}" ${cart.discount_code ? 'disabled' : ''} />
+          <input type="text" name="code" placeholder="${t('cart.discountCode')}" aria-label="${t('cart.discountCode')}" value="${cart.discount_code ? escapeHtml(cart.discount_code) : ''}" ${cart.discount_code ? 'disabled' : ''} />
           ${cart.discount_code
-            ? `<button type="button" id="remove-discount" class="secondary-btn">Remove</button>`
-            : `<button type="submit">Apply</button>`}
+            ? `<button type="button" id="remove-discount" class="secondary-btn">${t('common.remove')}</button>`
+            : `<button type="submit">${t('common.apply')}</button>`}
         </form>
-        <div id="discount-error" class="form-error"></div>
+        <div id="discount-error" class="form-error" role="alert"></div>
 
-        <button type="button" class="checkout-btn" id="checkout-btn" ${cart.items.length ? '' : 'disabled'}>Proceed to checkout</button>
+        <button type="button" class="checkout-btn" id="checkout-btn" ${cart.items.length ? '' : 'disabled'}>${t('cart.checkout')}</button>
       </aside>
     </div>
   `;
@@ -47,15 +48,15 @@ function renderCart(root, cart) {
   if (cart.discount_code) {
     root.querySelector('#discount-row').innerHTML = `
       <div class="summary-row summary-discount">
-        <span>Discount (${escapeHtml(cart.discount_code)})</span>
-        <span>−${formatVnd(cart.discount_amount) || '0₫'}</span>
+        <span>${t('cart.discount', { code: escapeHtml(cart.discount_code) })}</span>
+        <span>−${formatVnd(cart.discount_amount) || formatVnd(0)}</span>
       </div>`;
   }
 
-  renderLines(root.querySelector('#cart-active'), cart.items, { emptyText: 'Your cart is empty.', showSaveForLater: true });
+  renderLines(root.querySelector('#cart-active'), cart.items, { emptyText: t('cart.empty'), showSaveForLater: true });
   renderLines(root.querySelector('#cart-saved'), cart.saved_for_later, {
     emptyText: '',
-    title: cart.saved_for_later.length ? 'Saved for later' : '',
+    title: cart.saved_for_later.length ? t('cart.savedForLater') : '',
     showMoveToCart: true,
   });
 
@@ -130,21 +131,21 @@ function renderLines(container, lines, { emptyText, title, showSaveForLater, sho
       <div class="cart-line">
         ${productThumbHtml(item.imageUrl, item.webName)}
         <a href="#/product/${item.product_id}" class="cart-line-name">${escapeHtml(item.webName)}</a>
-        ${item.prescription ? '<span class="rx-tag">Prescription only</span>' : ''}
+        ${item.prescription ? `<span class="rx-tag">${t('common.rxOnly')}</span>` : ''}
         <div class="cart-line-price">
           ${formatVnd(item.price, item.price_unit)}
-          ${item.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}
+          ${item.price_is_estimated ? `<span class="estimate-tag">${t('common.estimated')}</span>` : ''}
         </div>
         <div class="cart-line-controls">
           ${showSaveForLater
-            ? `<input type="number" class="qty-input" min="1" max="${item.stock}" value="${item.quantity}" data-product-id="${item.product_id}" />`
-            : `<span class="cart-line-qty">Qty: ${item.quantity}</span>`}
+            ? `<input type="number" class="qty-input" min="1" max="${item.stock}" value="${item.quantity}" data-product-id="${item.product_id}" aria-label="${t('cart.qty', { n: '' })}" />`
+            : `<span class="cart-line-qty">${t('cart.qty', { n: item.quantity })}</span>`}
           <span class="cart-line-total">${formatVnd(item.line_total)}</span>
         </div>
         <div class="cart-line-actions">
-          ${showSaveForLater ? `<button type="button" class="link-btn" data-save-for-later="${item.product_id}">Save for later</button>` : ''}
-          ${showMoveToCart ? `<button type="button" class="link-btn" data-move-to-cart="${item.product_id}">Move to cart</button>` : ''}
-          <button type="button" class="link-btn" data-remove="${item.product_id}">Remove</button>
+          ${showSaveForLater ? `<button type="button" class="link-btn" data-save-for-later="${item.product_id}">${t('cart.saveForLater')}</button>` : ''}
+          ${showMoveToCart ? `<button type="button" class="link-btn" data-move-to-cart="${item.product_id}">${t('common.moveToCart')}</button>` : ''}
+          <button type="button" class="link-btn" data-remove="${item.product_id}">${t('common.remove')}</button>
         </div>
       </div>`
       )

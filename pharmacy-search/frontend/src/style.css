@@ -877,3 +877,91 @@ ul.products { list-style: none; padding: 0; margin: 0 0 16px; display: flex; fle
   .search-card { padding: 14px; }
   .topbar-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* --------------------------------------------------------------------------
+   Localisation, focus and skip-link affordances (F-15 + accessibility pass)
+   -------------------------------------------------------------------------- */
+
+/* Visible only once focused. A keyboard user landing on the page would
+   otherwise tab through the whole nav on every route before reaching the
+   content. */
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -60px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: 0 0 10px 10px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.15s;
+}
+.skip-link:focus { top: 0; }
+
+/* The brand is a link now (back to search), so it must not inherit link
+   colour or underline. */
+a.brand { color: inherit; text-decoration: none; }
+
+#view-root:focus { outline: none; }
+
+/* One ring, everywhere, and only for keyboard focus - :focus-visible keeps it
+   off mouse clicks, which is why the previous outline: none was tolerable and
+   this is better. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.locale-switch {
+  display: inline-flex;
+  margin-left: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.locale-btn {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.locale-btn:hover { color: var(--text); }
+.locale-btn.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+/* Vietnamese labels run longer than their English equivalents - "Tìm kiếm"
+   against "Search", "Tiến hành thanh toán" against "Proceed to checkout" - so
+   the nav has to be allowed to wrap instead of overflowing the header. */
+.main-nav { flex-wrap: wrap; row-gap: 4px; }
+
+@media (max-width: 720px) {
+  .locale-switch { margin-left: auto; }
+  .main-nav a { padding: 8px 10px; }
+}
+
+/* Diacritics sit above the cap height; the default line-height clipped them on
+   two-line product names in the catalogue grid. */
+.catalog-card-name,
+.product-name,
+.cart-line-name { line-height: 1.45; }
+
+/* The `hidden` attribute is only a UA rule (`display: none`), so any author
+   rule that sets `display` beats it. `.main-nav a` and `.nav-badge` both set
+   `display: inline-flex`, which is why the Admin link was visible to signed-out
+   visitors and the cart and wishlist badges sat there reading "0" - the
+   attribute was being set correctly the whole time and had no effect. */
+[hidden] { display: none !important; }

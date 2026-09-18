@@ -1,29 +1,19 @@
 import { getOrder, getToken } from '../api.js';
 import { escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
+import { t } from '../i18n.js';
 import { navigate } from '../router.js';
 
-const STATUS_LABELS = {
-  placed: 'Placed',
-  pending_payment: 'Awaiting payment (demo)',
-  awaiting_prescription: 'Held for pharmacist review',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-};
+// Server statuses are the keys; an unknown one falls back to the raw value so
+// a new status added on the backend shows up rather than disappearing.
+const STATUSES = ['placed', 'pending_payment', 'awaiting_prescription', 'shipped', 'delivered', 'cancelled'];
+const RX_STATUSES = ['pending_review', 'approved', 'rejected'];
 
-const PRESCRIPTION_NOTES = {
-  pending_review:
-    'This order contains prescription-only medicine. A pharmacist is reviewing your ' +
-    'prescription; nothing ships until that review is complete.',
-  approved: 'Your prescription was approved by a pharmacist and this order is being processed.',
-  rejected:
-    'A pharmacist could not approve the prescription for this order, so it was cancelled ' +
-    'and nothing was charged. Please contact us if you think this was a mistake.',
-};
+const statusLabel = (status) =>
+  (STATUSES.includes(status) ? t(`order.status.${status}`) : status);
 
 export async function render(root, params) {
   if (!getToken()) {
-    root.innerHTML = `<div class="empty-state">Please <a href="#/account">sign in</a> to view this order.</div>`;
+    root.innerHTML = `<div class="empty-state">${t('common.signInTo.order')}</div>`;
     return;
   }
   const orderId = params?.[0];
@@ -32,33 +22,36 @@ export async function render(root, params) {
     return;
   }
 
-  root.innerHTML = `<div class="loading">Loading…</div>`;
+  root.innerHTML = `<div class="loading">${t('common.loading')}</div>`;
   let order;
   try {
     order = await getOrder(orderId);
   } catch (err) {
-    root.innerHTML = `<div class="empty-state">Order not found.</div>`;
+    root.innerHTML = `<div class="empty-state">${t('order.notFound')}</div>`;
     return;
   }
 
   root.innerHTML = `
-    <a href="#/account" class="back-link">← Back to account</a>
+    <a href="#/account" class="back-link">${t('order.backToAccount')}</a>
     <div class="product-detail">
-      <h1>Order #${order.id}</h1>
+      <h1>${t('order.title', { id: order.id })}</h1>
       <div class="product-detail-meta">
-        <span class="status-pill status-corrected">${escapeHtml(STATUS_LABELS[order.status] || order.status)}</span>
-        <span class="hint-text">${escapeHtml(order.shipping_method)} shipping · ${escapeHtml(order.payment_method.toUpperCase())}</span>
+        <span class="status-pill status-corrected">${escapeHtml(statusLabel(order.status))}</span>
+        <span class="hint-text">${t('order.shippingAndPayment', {
+          shipping: escapeHtml(order.shipping_method),
+          payment: escapeHtml(order.payment_method.toUpperCase()),
+        })}</span>
       </div>
 
-      ${order.requires_prescription && PRESCRIPTION_NOTES[order.prescription_status]
+      ${order.requires_prescription && RX_STATUSES.includes(order.prescription_status)
         ? `<div class="notice notice-dym"><span class="notice-body">
-             <div class="notice-title">Prescription ${escapeHtml(order.prescription_status.replace('_', ' '))}</div>
-             ${escapeHtml(PRESCRIPTION_NOTES[order.prescription_status])}
-             ${order.prescription_reference ? `<div class="hint-text">Reference: ${escapeHtml(order.prescription_reference)}</div>` : ''}
+             <div class="notice-title">${t('order.prescriptionTitle', { status: t(`order.rxStatus.${order.prescription_status}`) })}</div>
+             ${escapeHtml(t(`order.rx.${order.prescription_status}`))}
+             ${order.prescription_reference ? `<div class="hint-text">${t('order.reference', { ref: escapeHtml(order.prescription_reference) })}</div>` : ''}
            </span></div>`
         : ''}
 
-      <h3>Items</h3>
+      <h3>${t('order.items')}</h3>
       <div class="cart-items">
         ${order.items
           .map(
@@ -66,9 +59,9 @@ export async function render(root, params) {
           <div class="cart-line">
             ${productThumbHtml(item.imageUrl, item.webName)}
             <a href="#/product/${item.product_id}" class="cart-line-name">${escapeHtml(item.webName)}</a>
-            <div class="cart-line-price">${formatVnd(item.unit_price)} each ${item.price_was_estimated ? '<span class="estimate-tag">was estimated</span>' : ''}</div>
+            <div class="cart-line-price">${formatVnd(item.unit_price)} ${t('order.each')} ${item.price_was_estimated ? `<span class="estimate-tag">${t('order.wasEstimated')}</span>` : ''}</div>
             <div class="cart-line-controls">
-              <span class="cart-line-qty">Qty: ${item.quantity}</span>
+              <span class="cart-line-qty">${t('cart.qty', { n: item.quantity })}</span>
               <span class="cart-line-total">${formatVnd(item.line_total)}</span>
             </div>
           </div>`
@@ -77,10 +70,10 @@ export async function render(root, params) {
       </div>
 
       <div class="order-totals">
-        <div class="summary-row"><span>Subtotal</span><span>${formatVnd(order.subtotal)}</span></div>
-        ${order.discount_code ? `<div class="summary-row summary-discount"><span>Discount (${escapeHtml(order.discount_code)})</span><span>−${formatVnd(order.discount_amount)}</span></div>` : ''}
-        <div class="summary-row"><span>Shipping</span><span>${order.shipping_fee > 0 ? formatVnd(order.shipping_fee) : 'Free'}</span></div>
-        <div class="summary-row summary-total"><span>Total</span><span>${formatVnd(order.total)}</span></div>
+        <div class="summary-row"><span>${t('cart.subtotal')}</span><span>${formatVnd(order.subtotal)}</span></div>
+        ${order.discount_code ? `<div class="summary-row summary-discount"><span>${t('cart.discount', { code: escapeHtml(order.discount_code) })}</span><span>−${formatVnd(order.discount_amount)}</span></div>` : ''}
+        <div class="summary-row"><span>${t('checkout.shippingFee')}</span><span>${order.shipping_fee > 0 ? formatVnd(order.shipping_fee) : t('common.free')}</span></div>
+        <div class="summary-row summary-total"><span>${t('cart.total')}</span><span>${formatVnd(order.total)}</span></div>
       </div>
     </div>
   `;

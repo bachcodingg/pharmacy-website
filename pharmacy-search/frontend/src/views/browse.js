@@ -1,25 +1,22 @@
 import { listProducts, getFacets, addToCart, getToken } from '../api.js';
 import { escapeHtml, formatVnd, starRating, productThumbHtml } from '../shared.js';
+import { t } from '../i18n.js';
 import { navigate } from '../router.js';
 import { refreshNavBadges } from '../nav.js';
 
+// Values are the API's category slugs and never change with the locale; only
+// the label does. In English the Vietnamese name is kept in parentheses,
+// because it is what is printed on the box the customer is holding.
 const CATEGORIES = [
-  { value: '', label: 'All categories' },
-  { value: 'thuoc', label: 'Thuốc (medicine)' },
-  { value: 'thuc-pham-chuc-nang', label: 'Thực phẩm chức năng (supplements)' },
-  { value: 'duoc-my-pham', label: 'Dược mỹ phẩm (cosmeceuticals)' },
-  { value: 'cham-soc-ca-nhan', label: 'Chăm sóc cá nhân (personal care)' },
-  { value: 'trang-thiet-bi-y-te', label: 'Trang thiết bị y tế (medical devices)' },
+  { value: '', key: 'browse.allCategories' },
+  { value: 'thuoc', key: 'browse.cat.thuoc' },
+  { value: 'thuc-pham-chuc-nang', key: 'browse.cat.supplements' },
+  { value: 'duoc-my-pham', key: 'browse.cat.cosmeceuticals' },
+  { value: 'cham-soc-ca-nhan', key: 'browse.cat.personalCare' },
+  { value: 'trang-thiet-bi-y-te', key: 'browse.cat.devices' },
 ];
 
-const SORT_OPTIONS = [
-  { value: 'name', label: 'Alphabetical' },
-  { value: 'price_asc', label: 'Price: low to high' },
-  { value: 'price_desc', label: 'Price: high to low' },
-  { value: 'newest', label: 'Newest' },
-  { value: 'top_rated', label: 'Top rated' },
-  { value: 'best_selling', label: 'Best selling' },
-];
+const SORT_OPTIONS = ['name', 'price_asc', 'price_desc', 'newest', 'top_rated', 'best_selling'];
 
 export async function render(root, params) {
   const state = {
@@ -38,48 +35,45 @@ export async function render(root, params) {
     <div class="browse-layout">
       <aside class="filter-panel">
         <div class="filter-group">
-          <label class="filter-label">Category</label>
+          <label class="filter-label" for="f-category">${t('browse.category')}</label>
           <select id="f-category">
-            ${CATEGORIES.map((c) => `<option value="${c.value}">${escapeHtml(c.label)}</option>`).join('')}
+            ${CATEGORIES.map((c) => `<option value="${c.value}">${escapeHtml(t(c.key))}</option>`).join('')}
           </select>
         </div>
         <div class="filter-group">
-          <label class="filter-label">Brand</label>
-          <select id="f-brand"><option value="">All brands</option></select>
+          <label class="filter-label" for="f-brand">${t('browse.brand')}</label>
+          <select id="f-brand"><option value="">${t('browse.allBrands')}</option></select>
         </div>
         <div class="filter-group">
-          <label class="filter-label">Price range (₫)</label>
+          <label class="filter-label" for="f-min-price">${t('browse.priceRange')}</label>
           <div class="filter-range">
-            <input id="f-min-price" type="number" min="0" placeholder="Min" />
+            <input id="f-min-price" type="number" min="0" placeholder="${t('browse.min')}" aria-label="${t('browse.min')}" />
             <span>–</span>
-            <input id="f-max-price" type="number" min="0" placeholder="Max" />
+            <input id="f-max-price" type="number" min="0" placeholder="${t('browse.max')}" aria-label="${t('browse.max')}" />
           </div>
         </div>
         <div class="filter-group">
-          <label class="filter-label">Minimum rating</label>
+          <label class="filter-label" for="f-min-rating">${t('browse.minRating')}</label>
           <select id="f-min-rating">
-            <option value="">Any rating</option>
-            <option value="4">4★ &amp; up</option>
-            <option value="3">3★ &amp; up</option>
-            <option value="2">2★ &amp; up</option>
-            <option value="1">1★ &amp; up</option>
+            <option value="">${t('browse.anyRating')}</option>
+            ${[4, 3, 2, 1].map((n) => `<option value="${n}">${t('browse.ratingAndUp', { n })}</option>`).join('')}
           </select>
         </div>
         <div class="filter-group">
-          <label class="checkbox-label"><input id="f-in-stock" type="checkbox" /> In stock only</label>
+          <label class="checkbox-label"><input id="f-in-stock" type="checkbox" /> ${t('browse.inStockOnly')}</label>
         </div>
-        <button type="button" id="f-clear" class="secondary-btn">Clear filters</button>
+        <button type="button" id="f-clear" class="secondary-btn">${t('browse.clearFilters')}</button>
       </aside>
 
       <div class="browse-main">
         <div class="browse-toolbar">
-          <input id="browse-q" type="search" placeholder="Filter by name…" />
-          <select id="browse-sort">
-            ${SORT_OPTIONS.map((s) => `<option value="${s.value}">${escapeHtml(s.label)}</option>`).join('')}
+          <input id="browse-q" type="search" placeholder="${t('browse.filterByName')}" aria-label="${t('browse.filterByName')}" />
+          <select id="browse-sort" aria-label="${t('browse.sort.name')}">
+            ${SORT_OPTIONS.map((s) => `<option value="${s}">${escapeHtml(t(`browse.sort.${s}`))}</option>`).join('')}
           </select>
         </div>
-        <div id="browse-notice"></div>
-        <div id="browse-grid" class="product-grid"></div>
+        <div id="browse-notice" role="status" aria-live="polite"></div>
+        <div id="browse-grid" class="product-grid" aria-busy="false"></div>
         <div id="browse-pager" class="pager"></div>
       </div>
     </div>
@@ -100,13 +94,14 @@ export async function render(root, params) {
   async function loadFacets() {
     const facets = await getFacets({ q: state.q, category: state.category });
     const currentBrand = brandSelect.value;
-    brandSelect.innerHTML = '<option value="">All brands</option>' +
+    brandSelect.innerHTML = `<option value="">${t('browse.allBrands')}</option>` +
       facets.brands.map((b) => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
     if (facets.brands.includes(currentBrand)) brandSelect.value = currentBrand;
   }
 
   async function load() {
-    grid.innerHTML = '<div class="loading">Loading…</div>';
+    grid.setAttribute('aria-busy', 'true');
+    grid.innerHTML = `<div class="loading">${t('common.loading')}</div>`;
     const data = await listProducts({
       q: state.q,
       category: state.category,
@@ -122,6 +117,7 @@ export async function render(root, params) {
     renderNotice(data);
     renderGrid(data);
     renderPager(data);
+    grid.setAttribute('aria-busy', 'false');
   }
 
   function renderNotice(data) {
@@ -129,14 +125,14 @@ export async function render(root, params) {
       browseNotice.innerHTML = '';
       return;
     }
-    browseNotice.innerHTML = `<div class="browse-correction">Showing results for <strong>${escapeHtml(
+    browseNotice.innerHTML = `<div class="browse-correction">${t('search.showingResultsFor')} <strong>${escapeHtml(
       data.corrected_to
     )}</strong></div>`;
   }
 
   function renderGrid(data) {
     if (!data.items.length) {
-      grid.innerHTML = '<div class="empty-state">No products match this filter.</div>';
+      grid.innerHTML = `<div class="empty-state">${t('browse.empty')}</div>`;
       return;
     }
     grid.innerHTML = data.items
@@ -149,17 +145,17 @@ export async function render(root, params) {
           <div class="catalog-card-meta">
             ${p.brand ? `<span class="catalog-brand">${escapeHtml(p.brand)}${p.brand_is_estimated ? ' *' : ''}</span>` : ''}
             ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
-            ${p.prescription ? '<span class="rx-tag">Rx</span>' : ''}
+            ${p.prescription ? `<span class="rx-tag">${t('common.rxShort')}</span>` : ''}
           </div>
           <div class="catalog-card-rating">${starRating(p.rating_avg)}</div>
           <div class="catalog-card-price">
-            ${p.price !== null ? formatVnd(p.price, p.price_unit) : 'Price unavailable'}
-            ${p.price_is_estimated ? '<span class="estimate-tag">estimated</span>' : ''}
+            ${p.price !== null ? formatVnd(p.price, p.price_unit) : t('common.priceUnavailable')}
+            ${p.price_is_estimated ? `<span class="estimate-tag">${t('common.estimated')}</span>` : ''}
           </div>
-          <div class="catalog-card-stock">${p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}</div>
+          <div class="catalog-card-stock">${p.stock > 0 ? t('common.inStock', { n: p.stock }) : t('common.outOfStock')}</div>
         </a>
         <button type="button" class="quick-add-btn" data-quick-add="${p.id}" ${p.stock > 0 ? '' : 'disabled'}>
-          ${p.stock > 0 ? '+ Add to cart' : 'Out of stock'}
+          ${p.stock > 0 ? t('browse.quickAdd') : t('common.outOfStock')}
         </button>
       </div>`
       )
@@ -172,12 +168,12 @@ export async function render(root, params) {
           return;
         }
         btn.disabled = true;
-        btn.textContent = 'Added ✓';
+        btn.textContent = t('browse.quickAdded');
         await addToCart(parseInt(btn.dataset.quickAdd, 10), 1);
         refreshNavBadges();
         setTimeout(() => {
           btn.disabled = false;
-          btn.textContent = '+ Add to cart';
+          btn.textContent = t('browse.quickAdd');
         }, 1200);
       });
     });
@@ -186,9 +182,9 @@ export async function render(root, params) {
   function renderPager(data) {
     const totalPages = Math.max(1, Math.ceil(data.total / data.page_size));
     pager.innerHTML = `
-      <button type="button" id="prev-page" ${data.page <= 1 ? 'disabled' : ''}>← Previous</button>
-      <span class="pager-status">Page ${data.page} of ${totalPages} · ${data.total} products</span>
-      <button type="button" id="next-page" ${data.page >= totalPages ? 'disabled' : ''}>Next →</button>
+      <button type="button" id="prev-page" ${data.page <= 1 ? 'disabled' : ''}>${t('browse.prev')}</button>
+      <span class="pager-status">${t('browse.pagerStatus', { page: data.page, total: totalPages, count: data.total })}</span>
+      <button type="button" id="next-page" ${data.page >= totalPages ? 'disabled' : ''}>${t('browse.next')}</button>
     `;
     pager.querySelector('#prev-page').addEventListener('click', () => {
       state.page -= 1;

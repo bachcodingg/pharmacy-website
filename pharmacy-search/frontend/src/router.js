@@ -30,7 +30,11 @@ async function renderCurrentRoute() {
   if (typeof result === 'function') currentCleanup = result;
 
   document.querySelectorAll('.main-nav a').forEach((a) => {
-    a.classList.toggle('active', a.dataset.route === name);
+    const active = a.dataset.route === name;
+    a.classList.toggle('active', active);
+    // The class is a colour; aria-current is what a screen reader announces.
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   });
 }
 

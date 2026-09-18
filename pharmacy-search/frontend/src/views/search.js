@@ -1,12 +1,15 @@
 import { search, suggest, logClick } from '../api.js';
 import { ICONS, escapeHtml, formatVnd, productThumbHtml } from '../shared.js';
+import { t } from '../i18n.js';
 
+// The labels are literal queries and stay untranslated - they are what the
+// user would type. Only the explanation of what each one demonstrates moves.
 const PRESETS = [
-  { label: 'etrogen', hint: 'typo → auto-correct' },
-  { label: 'amoxycillin', hint: 'phonetic spelling' },
-  { label: 'paracetamol 500mg', hint: 'dose is protected' },
-  { label: 'vitamind', hint: 'ambiguous → did you mean' },
-  { label: 'qqzzxx', hint: 'no results' },
+  { label: 'etrogen', hint: 'search.preset.typo' },
+  { label: 'amoxycillin', hint: 'search.preset.phonetic' },
+  { label: 'paracetamol 500mg', hint: 'search.preset.dose' },
+  { label: 'vitamind', hint: 'search.preset.ambiguous' },
+  { label: 'qqzzxx', hint: 'search.preset.none' },
 ];
 
 export function render(root) {
@@ -14,24 +17,24 @@ export function render(root) {
     <div class="search-card">
       <div class="search-box">
         <span class="search-icon">${ICONS.search}</span>
-        <input id="query" placeholder="Search a product or ingredient…" autocomplete="off" spellcheck="false" />
+        <input id="query" placeholder="${t('search.placeholder')}" aria-label="${t('search.placeholder')}" autocomplete="off" spellcheck="false" />
         <span class="spinner" id="spinner" hidden></span>
       </div>
       <div id="autocomplete" class="autocomplete-dropdown" hidden></div>
       <div class="presets" id="presets"></div>
     </div>
 
-    <div id="notice"></div>
+    <div id="notice" role="status" aria-live="polite"></div>
     <div id="results"></div>
 
     <details class="debug-panel">
-      <summary>Debug details</summary>
+      <summary>${t('search.debugTitle')}</summary>
       <div id="debug"></div>
     </details>
   `;
 
   root.querySelector('#presets').innerHTML = PRESETS.map(
-    (p) => `<button type="button" class="preset" data-q="${p.label}"><span class="preset-label">${p.label}</span><span class="preset-hint">${p.hint}</span></button>`
+    (p) => `<button type="button" class="preset" data-q="${p.label}"><span class="preset-label">${p.label}</span><span class="preset-hint">${t(p.hint)}</span></button>`
   ).join('');
 
   const queryInput = root.querySelector('#query');
@@ -50,8 +53,8 @@ export function render(root) {
       notice.innerHTML = `
         <span class="notice-icon">${ICONS.check}</span>
         <span class="notice-body">
-          Showing results for <strong>${escapeHtml(result.suggestion)}</strong>
-          <button type="button" class="link-btn" data-literal="${original}">search for "${original}" instead</button>
+          ${t('search.showingResultsFor')} <strong>${escapeHtml(result.suggestion)}</strong>
+          <button type="button" class="link-btn" data-literal="${original}">${t('search.searchLiterally', { q: original })}</button>
         </span>
       `;
       return;
@@ -71,7 +74,7 @@ export function render(root) {
       notice.innerHTML = `
         <span class="notice-icon">${ICONS.help}</span>
         <span class="notice-body">
-          <div class="notice-title">Did you mean one of these?</div>
+          <div class="notice-title">${t('search.didYouMean')}</div>
           <div class="candidate-list">${buttons}</div>
         </span>
       `;
@@ -82,7 +85,7 @@ export function render(root) {
       notice.className = 'notice notice-none';
       notice.innerHTML = `
         <span class="notice-icon">${ICONS.x}</span>
-        <span class="notice-body">No results for <strong>${original}</strong> — this query was logged for review.</span>
+        <span class="notice-body">${t('search.noResults', { q: original })}</span>
       `;
       return;
     }
@@ -107,8 +110,8 @@ export function render(root) {
             ${productThumbHtml(p.imageUrl, p.webName)}
             <span class="product-name">${escapeHtml(p.webName)}</span>
             ${p.category ? `<span class="product-category">${escapeHtml(p.category)}</span>` : ''}
-            <span class="product-price">${p.price != null ? formatVnd(p.price) : ''}${p.price_is_estimated ? ' <span class="estimate-tag">est.</span>' : ''}</span>
-            ${p.prescription ? '<span class="rx-tag">Prescription only</span>' : ''}
+            <span class="product-price">${p.price != null ? formatVnd(p.price) : ''}${p.price_is_estimated ? ` <span class="estimate-tag">${t('common.estimated')}</span>` : ''}</span>
+            ${p.prescription ? `<span class="rx-tag">${t('common.rxOnly')}</span>` : ''}
           </a>
         </li>`
       )
@@ -130,10 +133,10 @@ export function render(root) {
       .join('');
     debug.innerHTML = `
       <table>
-        <thead><tr><th>token</th><th>status</th><th>candidates</th></tr></thead>
+        <thead><tr><th>${t('search.debug.token')}</th><th>${t('search.debug.status')}</th><th>${t('search.debug.candidates')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="debug-meta">decision=<strong>${result.decision}</strong> · latency=${result.latency_ms}ms</div>
+      <div class="debug-meta">${t('search.debug.summary', { decision: result.decision, latency: result.latency_ms })}</div>
     `;
   }
 
