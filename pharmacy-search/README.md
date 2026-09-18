@@ -100,6 +100,32 @@ fuzzy fallback still scans the vocabulary per unknown token, so p95 is over
 its 50 ms budget. It is carried as a failing test rather than a deleted one,
 and the suite will flag the moment it is fixed.
 
+## Logs
+
+The app writes one JSON object per line to stdout, which Fly forwards to
+whatever drain is attached:
+
+```json
+{"ts":"2026-09-18T04:00:00.332Z","level":"warning","logger":"pharmacy.request",
+ "event":"request","request_id":"...","method":"GET","path":"/api/products/9",
+ "status":404,"duration_ms":1.46}
+```
+
+`request_id` is Fly's own `fly-request-id` when the request came through the
+edge, so a line here joins to the edge's logs, and it is echoed back in the
+`X-Request-Id` response header so a user reporting a problem can quote
+something findable. 4xx logs at `warning` and 5xx at `error`, so a status
+filter is enough to find them; `/api/health` logs at `debug` because it runs
+every 15 seconds forever. Uvicorn's own access log is silenced rather than
+reformatted — the middleware already emits a richer line, and two per request
+would only double the drain's bill.
+
+Query strings are deliberately not logged. Search terms are already recorded
+once, with their context, in the query log; duplicating them here would spread
+the same personal data into a second system with a different retention policy.
+
+`PHARMACY_LOG_LEVEL` sets verbosity.
+
 ## Backups and recovery (F-13)
 
 The Fly volume is a single unreplicated copy of every user, order,

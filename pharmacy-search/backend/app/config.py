@@ -70,6 +70,10 @@ RATE_LIMIT_ENABLED = _flag("PHARMACY_RATE_LIMIT_ENABLED", True)
 # Caps on anything a caller can make arbitrarily large. The fuzzy corrector
 # runs an O(n*m) edit distance against ~15k vocabulary forms, and the query
 # and click logs are appended to by unauthenticated endpoints.
+# Log verbosity for the JSON lines written to stdout. Fly forwards stdout to
+# the log drain, so this is the only knob between "quiet" and "every request".
+LOG_LEVEL = os.environ.get("PHARMACY_LOG_LEVEL", "INFO")
+
 MAX_QUERY_LENGTH = int(os.environ.get("PHARMACY_MAX_QUERY_LENGTH", "200"))
 MAX_LOG_FIELD_LENGTH = int(os.environ.get("PHARMACY_MAX_LOG_FIELD_LENGTH", "500"))
 

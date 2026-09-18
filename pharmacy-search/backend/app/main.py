@@ -1,6 +1,8 @@
 import json
+import logging
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -8,6 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config, ratelimit
+from app.logging_config import configure_logging
 from app.catalog import search_catalog
 from app.corrector import get_corrector
 from app.db import get_connection, init_db
@@ -16,6 +19,11 @@ from app import admin_orders, admin_users, admin_coupons, admin_corrections, adm
 
 BASE_DIR = config.BASE_DIR
 sys.path.insert(0, str(BASE_DIR))
+
+# Before anything else logs: uvicorn installs its own handlers on import, and
+# whichever side configures last wins.
+configure_logging(config.LOG_LEVEL)
+log = logging.getLogger("pharmacy.request")
 
 # Shared with the catalog router, which falls back to it when a browse query
 # matches no product name literally.
@@ -44,6 +52,52 @@ from build.aggregate_clicks import aggregate as _aggregate_clicks  # noqa: E402
 _aggregate_clicks()
 
 app = FastAPI(title="Pharmacy Search")
+
+
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    """One structured line per request.
+
+    Registered after security_headers, which in Starlette means it wraps it -
+    so it sees the status actually sent, and an exception raised anywhere
+    below it still produces a log line before it propagates.
+
+    The query string is deliberately not logged. Search terms are already
+    recorded, with consent-relevant context, in the query log; repeating them
+    here would scatter the same personal data across a second system with a
+    different retention policy, and a token that ends up in a URL by mistake
+    would be captured forever."""
+    started = time.perf_counter()
+    # Fly stamps every inbound request; reusing its id means a line here can
+    # be joined to the edge's own logs instead of living in its own universe.
+    request_id = request.headers.get("fly-request-id") or uuid.uuid4().hex
+    fields = {
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+    }
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.exception("request_failed", extra={
+            **fields, "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        })
+        raise
+
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    # The healthcheck runs every 15s forever. At INFO it would be most of the
+    # drain's volume and none of its value.
+    level = logging.DEBUG if request.url.path == "/api/health" else logging.INFO
+    if response.status_code >= 500:
+        level = logging.ERROR
+    elif response.status_code >= 400:
+        level = logging.WARNING
+    log.log(level, "request", extra={
+        **fields, "status": response.status_code, "duration_ms": duration_ms,
+    })
+    # Echoed so a user reporting a problem can quote something findable.
+    response.headers["X-Request-Id"] = request_id
+    return response
 
 
 @app.middleware("http")
