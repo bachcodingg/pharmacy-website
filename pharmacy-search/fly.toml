@@ -21,6 +21,10 @@ primary_region = 'sin'
 [mounts]
   source = 'pharmacy_data'
   destination = '/data'
+  # This volume is a single unreplicated copy. It is backed up by Litestream
+  # streaming the WAL to object storage (see litestream.yml); the bucket
+  # credentials are Fly secrets, not config, so they are deliberately absent
+  # from this file. `scripts/restore-drill.sh remote` rehearses the restore.
 
 [http_service]
   internal_port = 8000

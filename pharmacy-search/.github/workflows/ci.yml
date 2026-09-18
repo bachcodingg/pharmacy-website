@@ -53,6 +53,32 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+  restore-drill:
+    name: Backup restore drill
+    runs-on: ubuntu-latest
+    # F-13 asks for a *rehearsed* restore, not a documented one. This runs the
+    # real litestream binary against a file:// replica and fails if a single
+    # row written after the last snapshot does not come back, so the recovery
+    # path is exercised on every push instead of on the day it is needed.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pharmacy-search/backend/requirements-dev.txt
+      - name: Install dependencies
+        working-directory: pharmacy-search/backend
+        run: pip install -r requirements.txt
+      - name: Install litestream
+        run: |
+          curl -fsSL -o /tmp/litestream.tar.gz             https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz
+          sudo tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz litestream
+          litestream version
+      - name: Run the drill
+        working-directory: pharmacy-search
+        run: ./scripts/restore-drill.sh local
+
   image:
     name: Docker image builds
     runs-on: ubuntu-latest
@@ -65,7 +91,7 @@ jobs:
   deploy:
     name: Deploy to Fly
     # Only from main, and only once everything above is green.
-    needs: [backend, frontend, image]
+    needs: [backend, frontend, image, restore-drill]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     concurrency: deploy-production

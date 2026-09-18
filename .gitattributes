@@ -1,0 +1,7 @@
+# These files are executed by /bin/sh inside a Linux container. Checked out on
+# Windows with core.autocrlf=true they would arrive with CRLF line endings, and
+# a shebang followed by a carriage return fails as "no such file or directory" -
+# a confusing way to discover that the backup entrypoint never ran.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf

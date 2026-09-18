@@ -100,6 +100,56 @@ fuzzy fallback still scans the vocabulary per unknown token, so p95 is over
 its 50 ms budget. It is carried as a failing test rather than a deleted one,
 and the suite will flag the moment it is fixed.
 
+## Backups and recovery (F-13)
+
+The Fly volume is a single unreplicated copy of every user, order,
+prescription decision and review. Litestream streams the SQLite WAL to object
+storage continuously, so the worst case is seconds of writes rather than
+everything.
+
+```bash
+fly secrets set   LITESTREAM_BUCKET=pharmacy-search-backups   LITESTREAM_PATH=pharmacy-search/app.db   LITESTREAM_ENDPOINT=https://<account>.r2.cloudflarestorage.com   LITESTREAM_REGION=auto   LITESTREAM_ACCESS_KEY_ID=...   LITESTREAM_SECRET_ACCESS_KEY=...
+
+# FIRST deploy only, while the bucket is still empty:
+fly secrets set LITESTREAM_BOOTSTRAP=1
+fly deploy
+fly secrets unset LITESTREAM_BOOTSTRAP     # do not leave this set
+```
+
+`LITESTREAM_BOOTSTRAP` makes a missing replica non-fatal. Leaving it set is the
+one configuration that can lose data: a typo'd bucket then looks identical to a
+first deploy, so the machine boots an empty database and replicates *that* over
+the good copy. Without the flag a failed restore crash-loops the machine, which
+is the failure you want.
+
+### Rehearsing the restore
+
+```bash
+scripts/restore-drill.sh local     # file:// replica, no credentials; runs in CI
+scripts/restore-drill.sh remote    # restores the real replica to a scratch file
+```
+
+`local` seeds a database with the app's own schema, replicates, writes 50 rows
+*after* the snapshot, restores into a fresh file and fails if a single row is
+missing. It runs on every push. `remote` is read-only with respect to the
+replica and is the only version that proves the credentials and bucket path in
+production actually work — run it after any change to the backup settings.
+
+### Recovering
+
+```bash
+fly scale count 0                                   # stop writers first
+fly ssh console -C "litestream restore -config /etc/litestream.yml /data/app.db"
+fly scale count 1
+```
+
+Restoring to a point in time uses `-timestamp`, which is what a bad migration
+or a mass delete needs rather than a hardware failure:
+
+```bash
+litestream restore -config /etc/litestream.yml   -timestamp 2026-09-18T10:00:00Z -o /data/app.db /data/app.db
+```
+
 ## Architecture
 
 ```
@@ -152,7 +202,10 @@ Deliberately listed rather than hidden:
   previewed when shared.
 - **The UI is in English** while the catalogue and the entire premise are
   Vietnamese. It needs a `vi-VN` locale and proper `145.000 ₫` formatting.
-- **No backups.** The volume is not replicated; Litestream is the next step.
+- **Backups are not yet proven against the real bucket.** Litestream is wired
+  up and the restore round-trip is rehearsed in CI against a `file://` replica,
+  but nobody has yet run `scripts/restore-drill.sh remote` against production
+  object storage. Until someone has, the recovery path is tested, not proven.
 - **Product images hotlink Long Châu's CDN** and would need mirroring and a
   licence before any commercial use.
 

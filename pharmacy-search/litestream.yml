@@ -1,0 +1,39 @@
+# Litestream replication for the SQLite database on the Fly volume.
+#
+# F-13: the volume holds every user, order, prescription decision and review,
+# and Fly volumes are not replicated. One corrupted write or one
+# `fly volumes destroy` and there is no recovery path. Litestream streams the
+# WAL to object storage continuously, so the recovery point is seconds rather
+# than "whatever you last copied off the machine by hand".
+#
+# This works because app/db.py already opens every connection with
+# `PRAGMA journal_mode = WAL`. Litestream holds its own long-running read
+# transaction against the database, which is what stops SQLite from
+# checkpointing away WAL frames it has not shipped yet - so the app's
+# connect/close-per-request pattern is safe here.
+#
+# Every value comes from the environment. Bucket credentials are secrets and
+# must be set with `fly secrets set`, never in fly.toml, which is committed.
+dbs:
+  - path: ${PHARMACY_SEARCH_DB}
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        path: ${LITESTREAM_PATH}
+        # Set for S3-compatible storage (Cloudflare R2, MinIO, Backblaze B2).
+        # Left empty for AWS S3 proper, which resolves from the region.
+        endpoint: ${LITESTREAM_ENDPOINT}
+        region: ${LITESTREAM_REGION}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+
+        # Ship WAL frames every second. The window of data that a total loss
+        # of the machine can destroy is bounded by this number.
+        sync-interval: 1s
+        # A full snapshot twice a day bounds how much WAL has to be replayed
+        # during a restore; retention then expires anything older than the
+        # snapshot that covers it.
+        snapshot-interval: 12h
+        # 30 days. Long enough to notice and recover from a logical mistake
+        # (a bad migration, a mass delete) rather than only a hardware one.
+        retention: 720h
